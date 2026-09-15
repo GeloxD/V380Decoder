@@ -245,7 +245,7 @@ docker run -d --restart unless-stopped --network host v380decoder --id 12345678 
 
 ## Software-calibrated PTZ presets
 
-The camera does not provide verified absolute PTZ coordinates. Calibration drives the camera to its left and down physical stops, establishing a repeatable reference. `pan` and `tilt` are motor-running milliseconds measured from that corner, not degrees or camera-reported coordinates.
+The camera does not provide verified absolute PTZ coordinates. Calibration drives the camera to its left and down physical stops, establishing a repeatable reference. Because the V380 direction command is a short step rather than a continuous motor-start command, the decoder repeats it every 250 ms. `pan` and `tilt` record these command windows from the reference corner, not degrees or camera-reported coordinates.
 
 The state file defaults to `/data/ptz-state.json`. Mount `/data` to persistent host storage when using Docker:
 
@@ -258,7 +258,7 @@ docker run -d --restart unless-stopped --network host \
 
 ### API
 
-All timed movement requests require a duration from 50 to 10000 milliseconds. Each timed move sends a direction, waits for that duration, then sends the camera stop command. A failed, cancelled, or manually overridden move is not added to the logical position.
+All timed movement requests require a duration from 250 to 10000 milliseconds in 250 ms increments. The decoder repeats the direction command every 250 ms for that window and then sends the camera stop command. A failed, cancelled, or manually overridden move is not added to the logical position.
 
 ```bash
 # Establish the left/down reference using measured full-travel times. Calibration

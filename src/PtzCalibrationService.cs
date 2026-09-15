@@ -5,7 +5,8 @@ namespace V380Decoder.src
     // Tracks only commands issued through this service. It never claims to read camera coordinates.
     public sealed class PtzCalibrationService
     {
-        private const int MinDurationMs = 50;
+        private const int CommandPulseIntervalMs = 250;
+        private const int MinDurationMs = CommandPulseIntervalMs;
         private const int MaxDurationMs = 10_000;
         private const int MinTravelMs = 1_000;
         private const int MaxTravelMs = 60_000;
@@ -47,8 +48,9 @@ namespace V380Decoder.src
         public async Task<PtzMoveResult> CalibrateAsync(int panTravelMs, int tiltTravelMs)
         {
             if (panTravelMs < MinTravelMs || panTravelMs > MaxTravelMs ||
-                tiltTravelMs < MinTravelMs || tiltTravelMs > MaxTravelMs)
-                return Failure($"Travel times must be between {MinTravelMs} and {MaxTravelMs} milliseconds.");
+                tiltTravelMs < MinTravelMs || tiltTravelMs > MaxTravelMs ||
+                panTravelMs % CommandPulseIntervalMs != 0 || tiltTravelMs % CommandPulseIntervalMs != 0)
+                return Failure($"Travel times must be between {MinTravelMs} and {MaxTravelMs} milliseconds and use {CommandPulseIntervalMs} ms increments.");
 
             await movementLock.WaitAsync();
             try
@@ -152,6 +154,8 @@ namespace V380Decoder.src
                 return Failure("Direction must be up, down, left, or right.");
             if (request.durationMs < MinDurationMs || request.durationMs > MaxDurationMs)
                 return Failure($"durationMs must be between {MinDurationMs} and {MaxDurationMs}.");
+            if (request.durationMs % CommandPulseIntervalMs != 0)
+                return Failure($"durationMs must use {CommandPulseIntervalMs} ms increments.");
 
             await movementLock.WaitAsync();
             try
@@ -160,14 +164,8 @@ namespace V380Decoder.src
                 lock (stateLock) activeMovement = cancellation;
                 try
                 {
-                    if (!Send(direction)) return Failure("The camera control connection is unavailable.");
-
-                    bool cancelled = false;
-                    try { await Task.Delay(request.durationMs, cancellation.Token); }
-                    catch (OperationCanceledException) { cancelled = true; }
-
-                    bool stopped = client.PtzStop();
-                    if (!cancelled && stopped)
+                    bool completed = await RunCommandAsync(direction, request.durationMs, cancellation.Token);
+                    if (completed)
                     {
                         lock (stateLock)
                         {
@@ -177,9 +175,9 @@ namespace V380Decoder.src
                     }
                     return new PtzMoveResult
                     {
-                        ok = stopped,
-                        completed = !cancelled && stopped,
-                        error = stopped ? null : "The camera did not accept the stop command.",
+                        ok = completed,
+                        completed = completed,
+                        error = completed ? null : "Movement was stopped or the camera control connection is unavailable.",
                         position = GetPosition()
                     };
                 }
@@ -253,8 +251,21 @@ namespace V380Decoder.src
 
         private async Task<bool> RunCommandAsync(string direction, int durationMs, CancellationToken token)
         {
-            if (!Send(direction)) return false;
-            try { await Task.Delay(durationMs, token); }
+            try
+            {
+                int remainingMs = durationMs;
+                while (remainingMs > 0)
+                {
+                    if (!Send(direction))
+                    {
+                        client.PtzStop();
+                        return false;
+                    }
+                    int delayMs = Math.Min(CommandPulseIntervalMs, remainingMs);
+                    await Task.Delay(delayMs, token);
+                    remainingMs -= delayMs;
+                }
+            }
             catch (OperationCanceledException) { client.PtzStop(); return false; }
             return client.PtzStop();
         }
