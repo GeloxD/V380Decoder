@@ -12,6 +12,9 @@ namespace V380Decoder.src
     [JsonSerializable(typeof(PtzPresetRequest))]
     [JsonSerializable(typeof(PtzMoveResult))]
     [JsonSerializable(typeof(PtzStatusResponse))]
+    [JsonSerializable(typeof(PtzNativePresetRequest))]
+    [JsonSerializable(typeof(PtzNativePresetEntry))]
+    [JsonSerializable(typeof(List<PtzNativePresetEntry>))]
     internal partial class AppJsonSerializerContext : JsonSerializerContext
     {
     }

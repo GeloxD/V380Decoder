@@ -287,19 +287,27 @@ curl -X POST http://localhost:8080/api/ptz/restore-position
 
 Preset and temporary-position recall always re-homes against the physical stops before moving to the saved position. This corrects drift caused by movement from the native V380 app or any other unobserved controller. The original `/api/ptz/up`, `/down`, `/left`, and `/right` endpoints remain available for backwards compatibility, but they do not update software position. `POST /api/ptz/stop` also cancels an active timed move.
 
-### Experimental camera-native presets
+### Camera-native presets
 
-V380 Pro stores numbered presets in the camera firmware. These endpoints reproduce the captured V380 Pro save and recall commands and move directly without software re-homing:
+V380 Pro stores numbered motor positions in the camera firmware. V380Decoder stores a local name for each configured slot in `/data/ptz-state.json`; mount `/data` as shown above so names survive container replacement. The Web UI can save, name, recall, and remove these mappings. Recall moves directly without software re-homing.
 
 ```bash
-# Save the camera's current physical view in native slot 1.
-curl -X POST http://localhost:8080/api/ptz/native-presets/1
+# List slots and locally stored names.
+curl http://localhost:8080/api/ptz/native-presets
+
+# Save the camera's current physical view in native slot 1 and name it.
+curl -X POST http://localhost:8080/api/ptz/native-presets/1 \
+  -H 'Content-Type: application/json' -d '{"name":"Front door"}'
 
 # Recall native slot 1 directly.
 curl -X POST http://localhost:8080/api/ptz/native-presets/1/goto
+
+# Remove V380Decoder's local name mapping. The camera position remains stored
+# because the captured V380 app deletion flow sends no camera-side delete command.
+curl -X DELETE http://localhost:8080/api/ptz/native-presets/1
 ```
 
-API slots use the same one-based numbering shown in V380 Pro. The camera protocol is zero-based, so API slot 2 is encoded as raw slot 1. Slots 1 through 16 are accepted; device support beyond the captured and tested slots remains experimental.
+API slots use the same one-based numbering shown in V380 Pro. The camera protocol is zero-based, so API slot 2 is encoded as raw slot 1. An empty save request remains supported and uses the existing local name or `Preset N`. Slots 1 through 16 are accepted; device support beyond the captured and tested slots remains experimental. Names and slot visibility in the Android and iOS apps are separate app/account metadata and are not synchronized by this API.
 
 ## Acknowledgements
 

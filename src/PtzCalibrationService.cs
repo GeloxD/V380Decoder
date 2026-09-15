@@ -47,6 +47,95 @@ namespace V380Decoder.src
             }
         }
 
+        public List<PtzNativePresetEntry> GetNativePresets()
+        {
+            lock (stateLock)
+            {
+                return Enumerable.Range(1, 16).Select(slot => new PtzNativePresetEntry
+                {
+                    slot = slot,
+                    name = state.nativePresets.TryGetValue(slot, out var name) ? name : "",
+                    configured = state.nativePresets.ContainsKey(slot)
+                }).ToList();
+            }
+        }
+
+        public bool SaveNativePreset(int slot, string? name, out string? error)
+        {
+            if (!IsValidNativeSlot(slot))
+            {
+                error = "Preset slot must be between 1 and 16.";
+                return false;
+            }
+
+            string resolvedName;
+            lock (stateLock)
+            {
+                resolvedName = string.IsNullOrWhiteSpace(name)
+                    ? state.nativePresets.GetValueOrDefault(slot, $"Preset {slot}")
+                    : name.Trim();
+            }
+            if (!IsValidNativeName(resolvedName))
+            {
+                error = "Preset names must contain 1-64 characters and cannot contain control characters.";
+                return false;
+            }
+            if (!client.PtzSetNativePreset(slot))
+            {
+                error = "The camera did not accept the native preset save command.";
+                return false;
+            }
+
+            lock (stateLock)
+            {
+                state.schemaVersion = 3;
+                state.nativePresets[slot] = resolvedName;
+                if (!SaveLocked())
+                {
+                    error = "The camera slot was saved, but its local name could not be persisted.";
+                    return false;
+                }
+            }
+            error = null;
+            return true;
+        }
+
+        public bool RecallNativePreset(int slot, out string? error)
+        {
+            if (!IsValidNativeSlot(slot))
+            {
+                error = "Preset slot must be between 1 and 16.";
+                return false;
+            }
+            bool recalled = client.PtzRecallNativePreset(slot);
+            error = recalled ? null : "The camera control connection is unavailable.";
+            return recalled;
+        }
+
+        public bool DeleteNativePreset(int slot, out string? error)
+        {
+            if (!IsValidNativeSlot(slot))
+            {
+                error = "Preset slot must be between 1 and 16.";
+                return false;
+            }
+            lock (stateLock)
+            {
+                if (!state.nativePresets.Remove(slot))
+                {
+                    error = "That slot has no local name mapping.";
+                    return false;
+                }
+                if (!SaveLocked())
+                {
+                    error = "The local name was removed from memory but could not be persisted.";
+                    return false;
+                }
+            }
+            error = null;
+            return true;
+        }
+
         public async Task<PtzMoveResult> CalibrateAsync(int panTravelMs, int tiltTravelMs)
         {
             if (panTravelMs < MinTravelMs || panTravelMs > MaxTravelMs ||
@@ -296,6 +385,9 @@ namespace V380Decoder.src
         }
 
         private static bool IsValidName(string? name) => !string.IsNullOrWhiteSpace(name) && name.Length <= 64 && name.All(c => char.IsLetterOrDigit(c) || c is '_' or '-');
+        private static bool IsValidNativeSlot(int slot) => slot is >= 1 and <= 16;
+        private static bool IsValidNativeName(string? name) =>
+            !string.IsNullOrWhiteSpace(name) && name.Length <= 64 && !name.Any(char.IsControl);
 
         private void ApplyMovementLocked(string direction, int durationMs)
         {
@@ -322,6 +414,7 @@ namespace V380Decoder.src
                     // converted into hard-stop-referenced coordinates safely.
                     return new PtzPersistentState();
                 }
+                loaded.nativePresets ??= new Dictionary<int, string>();
                 return loaded;
             }
             catch (Exception ex)
@@ -331,7 +424,7 @@ namespace V380Decoder.src
             }
         }
 
-        private void SaveLocked()
+        private bool SaveLocked()
         {
             try
             {
@@ -340,8 +433,13 @@ namespace V380Decoder.src
                 var temporary = stateFile + ".tmp";
                 File.WriteAllText(temporary, JsonSerializer.Serialize(state, AppJsonSerializerContext.Default.PtzPersistentState));
                 File.Move(temporary, stateFile, true);
+                return true;
             }
-            catch (Exception ex) { Console.Error.WriteLine($"[PTZ] Failed to save state: {ex.Message}"); }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[PTZ] Failed to save state: {ex.Message}");
+                return false;
+            }
         }
     }
 }

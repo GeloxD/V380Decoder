@@ -1,8 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-
 namespace V380Decoder.src
 {
     public class WebPage
@@ -10,214 +5,161 @@ namespace V380Decoder.src
         public static string GetHtml(bool enableMjpeg)
         {
             string sectionMjpeg = enableMjpeg ? @"
-            <div class='section'>
-                <div class='section-title'>Live Stream</div>
-                <img class='live-frame' alt='Loading stream...' src='/mjpeg'>
+                <section class='section'>
+                    <h2>Live Stream</h2>
+                    <img class='live-frame' alt='Loading stream...' src='/mjpeg'>
+                </section>" : "";
+
+            return @"<!doctype html>
+<html lang='en'>
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>V380 Control Panel</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; min-height: 100vh; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; color: #1f2937; background: linear-gradient(135deg, #abdfff, #0396ff); }
+        .container { width: min(900px, 100%); margin: 0 auto; padding: 28px; border-radius: 20px; background: white; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+        h1 { margin: 0 0 26px; text-align: center; font-size: 28px; }
+        h2 { margin: 0 0 14px; color: #64748b; font-size: 15px; letter-spacing: .08em; text-transform: uppercase; }
+        .section { margin-bottom: 30px; }
+        .live-frame { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 14px; background: #0f172a; }
+        .ptz-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 480px; margin: auto; }
+        button { border: 0; border-radius: 9px; padding: 12px 14px; cursor: pointer; font: inherit; font-weight: 650; transition: transform .15s, opacity .15s; }
+        button:hover { transform: translateY(-1px); }
+        button:disabled { cursor: wait; opacity: .55; transform: none; }
+        .primary { color: white; background: #0284c7; }
+        .go { color: white; background: #16a34a; }
+        .remove { color: #991b1b; background: #fee2e2; }
+        .secondary { color: white; background: #64748b; }
+        .button-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .image-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+        .preset-note { margin: -5px 0 14px; color: #64748b; font-size: 13px; line-height: 1.45; }
+        .preset-list { display: grid; gap: 9px; }
+        .preset-row { display: grid; grid-template-columns: 58px minmax(130px,1fr) auto auto auto; gap: 8px; align-items: center; padding: 10px; border: 1px solid #e2e8f0; border-radius: 11px; }
+        .slot { font-weight: 750; color: #475569; text-align: center; }
+        input { min-width: 0; width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 11px; font: inherit; }
+        input:focus { outline: 2px solid #7dd3fc; border-color: #0284c7; }
+        .status { position: sticky; bottom: 12px; display: none; margin-top: 18px; padding: 12px 14px; border-radius: 10px; text-align: center; font-size: 14px; box-shadow: 0 5px 20px rgba(0,0,0,.15); }
+        .status.show { display: block; }
+        .status.success { color: #14532d; background: #dcfce7; }
+        .status.error { color: #7f1d1d; background: #fee2e2; }
+        @media (max-width: 650px) {
+            body { padding: 8px; }
+            .container { padding: 18px 14px; border-radius: 14px; }
+            .preset-row { grid-template-columns: 48px 1fr 1fr; }
+            .preset-row input { grid-column: 2 / 4; grid-row: 1; }
+            .preset-row .slot { grid-row: 1; }
+            .preset-row button { padding: 10px 6px; }
+            .button-row, .image-row { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <main class='container'>
+        <h1>V380 Control</h1>" + sectionMjpeg + @"
+        <section class='section'>
+            <h2>PTZ Control</h2>
+            <div class='ptz-grid'>
+                <span></span><button class='primary' onclick=""command('/api/ptz/up')"">Up</button><span></span>
+                <button class='primary' onclick=""command('/api/ptz/left')"">Left</button>
+                <button class='secondary' onclick=""command('/api/ptz/stop')"">Stop</button>
+                <button class='primary' onclick=""command('/api/ptz/right')"">Right</button>
+                <span></span><button class='primary' onclick=""command('/api/ptz/down')"">Down</button><span></span>
             </div>
-            " : "";
-            return $@"
-            <!DOCTYPE html>
-            <html>
+        </section>
 
-            <head>
-                <title>V380 Control Panel</title>
-                <meta name='viewport' content='width=device-width, initial-scale=1'>
-                <style>
-                    * {{
-                        margin: 0;
-                        padding: 0;
-                        box-sizing: border-box;
-                    }}
+        <section class='section'>
+            <h2>Camera Presets</h2>
+            <p class='preset-note'>Save stores the camera's current physical view in the numbered slot and stores its name in V380Decoder. Remove clears only the local name; the camera slot remains until it is overwritten.</p>
+            <div id='preset-list' class='preset-list'></div>
+        </section>
 
-                    body {{
-                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-                        background: linear-gradient(135deg, #ABDCFF 0%, #0396FF 100%);
-                        min-height: 100vh;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        padding: 20px;
-                    }}
+        <section class='section'>
+            <h2>Light Control</h2>
+            <div class='button-row'>
+                <button class='go' onclick=""command('/api/light/on')"">On</button>
+                <button class='go' onclick=""command('/api/light/off')"">Off</button>
+                <button class='go' onclick=""command('/api/light/auto')"">Auto</button>
+            </div>
+        </section>
 
-                    .container {{
-                        background: white;
-                        border-radius: 20px;
-                        padding: 30px;
-                        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-                        max-width: 700px;
-                        width: 100%;
-                    }}
+        <section class='section'>
+            <h2>Image Mode</h2>
+            <div class='image-row'>
+                <button class='secondary' onclick=""command('/api/image/color')"">Color</button>
+                <button class='secondary' onclick=""command('/api/image/bw')"">B&amp;W</button>
+                <button class='secondary' onclick=""command('/api/image/auto')"">Auto</button>
+                <button class='secondary' onclick=""command('/api/image/flip')"">Flip</button>
+            </div>
+        </section>
+        <div id='status' class='status' role='status' aria-live='polite'></div>
+    </main>
 
-                    h1 {{
-                        text-align: center;
-                        color: #333;
-                        margin-bottom: 30px;
-                        font-size: 28px;
-                    }}
-
-                    .section {{
-                        margin-bottom: 30px;
-                    }}
-
-                    .section-title {{
-                        font-size: 16px;
-                        font-weight: 600;
-                        color: #666;
-                        margin-bottom: 15px;
-                        text-transform: uppercase;
-                        letter-spacing: 1px;
-                    }}
-
-                    .ptz-grid {{
-                        display: grid;
-                        grid-template-columns: repeat(3, 1fr);
-                        gap: 10px;
-                        margin-bottom: 10px;
-                    }}
-
-                    .btn {{
-                        padding: 15px;
-                        border: none;
-                        border-radius: 10px;
-                        font-size: 16px;
-                        font-weight: 600;
-                        cursor: pointer;
-                        transition: all 0.2s;
-                        background: #0396FF;
-                        color: white;
-                        box-shadow: 0 4px 15px rgb(3, 150, 255, 0.4);
-                    }}
-
-                    .btn:hover {{
-                        transform: translateY(-2px);
-                        box-shadow: 0 6px 20px rgb(3, 150, 255, 0.6);
-                    }}
-
-                    .btn:active {{
-                        transform: translateY(0);
-                    }}
-
-                    .btn-group-light {{
-                        display: grid;
-                        grid-template-columns: repeat(3, 1fr);
-                        gap: 10px;
-                    }}
-
-                    .btn-group-image {{
-                        display: grid;
-                        grid-template-columns: repeat(4, 1fr);
-                        gap: 10px;
-                    }}
-
-                    .btn-secondary {{
-                        background: #48bb78;
-                        box-shadow: 0 4px 15px rgba(72, 187, 120, 0.4);
-                    }}
-
-                    .btn-secondary:hover {{
-                        box-shadow: 0 6px 20px rgba(72, 187, 120, 0.6);
-                    }}
-
-                    .btn-tertiary {{
-                        background: #ed8936;
-                        box-shadow: 0 4px 15px rgba(237, 137, 54, 0.4);
-                    }}
-
-                    .btn-tertiary:hover {{
-                        box-shadow: 0 6px 20px rgba(237, 137, 54, 0.6);
-                    }}
-
-                    .status {{
-                        margin-top: 20px;
-                        padding: 15px;
-                        border-radius: 10px;
-                        background: #f7fafc;
-                        text-align: center;
-                        font-size: 14px;
-                        color: #666;
-                        display: none;
-                    }}
-
-                    .status.show {{
-                        display: block;
-                    }}
-
-                    .status.success {{
-                        background: #c6f6d5;
-                        color: #22543d;
-                    }}
-
-                    .status.error {{
-                        background: #fed7d7;
-                        color: #742a2a;
-                    }}
-
-                    .empty {{
-                        grid-column: 2;
-                    }}
-
-                    .live-frame {{
-                        width: 100%;
-                        aspect-ratio: 16 / 9;
-                        object-fit: cover;
-                        border-radius: 15px;
-                    }}
-                </style>
-            </head>
-
-            <body>
-                <div class='container'>
-                    <h1>V380 Control</h1>
-
-                    {sectionMjpeg}
-                    
-                    <div class='section'>
-                        <div class='section-title'>PTZ Control</div>
-                        <div class='ptz-grid'>
-                            <div></div>
-                            <button class='btn' onclick='cmd(""/api/ptz/up"")'>UP</button>
-                            <div></div>
-                            <button class='btn' onclick='cmd(""/api/ptz/left"")'>LEFT</button>
-                            <button class='btn'></button>
-                            <button class='btn' onclick='cmd(""/api/ptz/right"")'>RIGHT</button>
-                            <div></div>
-                            <button class='btn' onclick='cmd(""/api/ptz/down"")'>DOWN</button>
-                            <div></div>
-                        </div>
-                    </div>
-
-                    <div class='section'>
-                        <div class='section-title'>Light Control</div>
-                        <div class='btn-group-light'>
-                            <button class='btn btn-secondary' onclick='cmd(""/api/light/on"")'>ON</button>
-                            <button class='btn btn-secondary' onclick='cmd(""/api/light/off"")'>OFF</button>
-                            <button class='btn btn-secondary' onclick='cmd(""/api/light/auto"")'>AUTO</button>
-                        </div>
-                    </div>
-
-                    <div class='section'>
-                        <div class='section-title'>Image Mode</div>
-                        <div class='btn-group-image'>
-                            <button class='btn btn-tertiary' onclick='cmd(""/api/image/color"")'>COLOR</button>
-                            <button class='btn btn-tertiary' onclick='cmd(""/api/image/bw"")'>B&W</button>
-                            <button class='btn btn-tertiary' onclick='cmd(""/api/image/auto"")'>AUTO</button>
-                            <button class='btn btn-tertiary' onclick='cmd(""/api/image/flip"")'>FLIP</button>
-                        </div>
-                    </div>
-
-                </div>
-
-                <script>
-                    async function cmd(url) {{
-                        const status = document.getElementById('status');
-                        const res = await fetch(url, {{ method: 'POST' }});
-                        const data = await res.json();
-                        console.log(data);
-                    }}
-                </script>
-            </body>
-
-            </html>";
+    <script>
+        const statusBox = document.getElementById('status');
+        function showStatus(message, isError) {
+            statusBox.textContent = message;
+            statusBox.className = 'status show ' + (isError ? 'error' : 'success');
+        }
+        async function request(url, options) {
+            const response = await fetch(url, options || {});
+            const text = await response.text();
+            let data = null;
+            if (text) { try { data = JSON.parse(text); } catch { data = null; } }
+            if (!response.ok) throw new Error((data && (data.error || data.detail || data.title)) || ('Request failed (' + response.status + ')'));
+            return data;
+        }
+        async function command(url) {
+            try { await request(url, { method: 'POST' }); showStatus('Command sent.', false); }
+            catch (error) { showStatus(error.message, true); }
+        }
+        function makeButton(label, className, handler) {
+            const button = document.createElement('button'); button.textContent = label; button.className = className; button.addEventListener('click', handler); return button;
+        }
+        async function savePreset(slot, input, button) {
+            const name = input.value.trim();
+            if (!name) { showStatus('Enter a name for slot ' + slot + '.', true); input.focus(); return; }
+            button.disabled = true;
+            try {
+                await request('/api/ptz/native-presets/' + slot, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name }) });
+                showStatus('Saved “' + name + '” to camera slot ' + slot + '.', false);
+            } catch (error) { showStatus(error.message, true); }
+            finally { button.disabled = false; }
+        }
+        async function goPreset(slot, button) {
+            button.disabled = true;
+            try { await request('/api/ptz/native-presets/' + slot + '/goto', { method: 'POST' }); showStatus('Moving directly to camera slot ' + slot + '.', false); }
+            catch (error) { showStatus(error.message, true); }
+            finally { button.disabled = false; }
+        }
+        async function removePreset(slot, input, button) {
+            if (!confirm('Remove the local name for slot ' + slot + '? The camera position itself will remain stored.')) return;
+            button.disabled = true;
+            try { await request('/api/ptz/native-presets/' + slot, { method: 'DELETE' }); input.value = ''; showStatus('Removed the local name for slot ' + slot + '. The camera slot was retained.', false); }
+            catch (error) { showStatus(error.message, true); }
+            finally { button.disabled = false; }
+        }
+        function renderPresets(presets) {
+            const list = document.getElementById('preset-list'); list.replaceChildren();
+            presets.forEach(function(preset) {
+                const row = document.createElement('div'); row.className = 'preset-row';
+                const label = document.createElement('div'); label.className = 'slot'; label.textContent = '#' + preset.slot;
+                const input = document.createElement('input'); input.maxLength = 64; input.placeholder = 'Preset name'; input.value = preset.name || '';
+                const save = makeButton('Save', 'primary', function() { savePreset(preset.slot, input, save); });
+                const go = makeButton('Go', 'go', function() { goPreset(preset.slot, go); });
+                const remove = makeButton('Remove', 'remove', function() { removePreset(preset.slot, input, remove); });
+                row.append(label, input, save, go, remove); list.appendChild(row);
+            });
+        }
+        async function loadPresets() {
+            try { renderPresets(await request('/api/ptz/native-presets')); }
+            catch (error) { showStatus('Could not load presets: ' + error.message, true); }
+        }
+        loadPresets();
+    </script>
+</body>
+</html>";
         }
     }
 }

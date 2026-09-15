@@ -199,19 +199,24 @@ namespace V380Decoder.src
                     var result = await ptz.RestoreAsync();
                     return result.ok ? Results.Ok(result) : Results.BadRequest(result);
                 });
-                api.MapPost("/api/ptz/native-presets/{slot:int}", (int slot) =>
+                api.MapGet("/api/ptz/native-presets", () => Results.Ok(ptz.GetNativePresets()));
+                api.MapPost("/api/ptz/native-presets/{slot:int}", (int slot, PtzNativePresetRequest? request) =>
                 {
-                    if (slot is < 1 or > 16) return Results.BadRequest(new { error = "Preset slot must be between 1 and 16." });
-                    return client.PtzSetNativePreset(slot)
-                        ? Results.Ok(new { ok = true, slot })
-                        : Results.Problem("The camera did not accept the native preset save command.");
+                    return ptz.SaveNativePreset(slot, request?.name, out var error)
+                        ? Results.Ok(ptz.GetNativePresets().Single(preset => preset.slot == slot))
+                        : Results.BadRequest(new { error });
                 });
                 api.MapPost("/api/ptz/native-presets/{slot:int}/goto", (int slot) =>
                 {
-                    if (slot is < 1 or > 16) return Results.BadRequest(new { error = "Preset slot must be between 1 and 16." });
-                    return client.PtzRecallNativePreset(slot)
+                    return ptz.RecallNativePreset(slot, out var error)
                         ? Results.Ok(new { ok = true, slot })
-                        : Results.Problem("The camera control connection is unavailable.");
+                        : Results.BadRequest(new { error });
+                });
+                api.MapDelete("/api/ptz/native-presets/{slot:int}", (int slot) =>
+                {
+                    return ptz.DeleteNativePreset(slot, out var error)
+                        ? Results.Ok(new { ok = true, slot, cameraSlotRetained = true })
+                        : Results.BadRequest(new { error });
                 });
 
                 api.MapPost("/api/light/on", () => { client.LightOn(); LogUtils.debug("[API] Light On"); Results.Ok(); });

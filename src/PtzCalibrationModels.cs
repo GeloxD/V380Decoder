@@ -16,13 +16,14 @@ namespace V380Decoder.src
 
     public sealed class PtzPersistentState
     {
-        public int schemaVersion { get; set; } = 2;
+        public int schemaVersion { get; set; } = 3;
         public bool calibrated { get; set; }
         public int panTravelMs { get; set; }
         public int tiltTravelMs { get; set; }
         public PtzPosition position { get; set; } = new();
         public PtzPosition? temporaryPosition { get; set; }
         public Dictionary<string, PtzPreset> presets { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<int, string> nativePresets { get; set; } = new();
     }
 
     public sealed class PtzMoveRequest
@@ -34,6 +35,18 @@ namespace V380Decoder.src
     public sealed class PtzPresetRequest
     {
         public string name { get; set; } = "";
+    }
+
+    public sealed class PtzNativePresetRequest
+    {
+        public string? name { get; set; }
+    }
+
+    public sealed class PtzNativePresetEntry
+    {
+        public int slot { get; set; }
+        public string name { get; set; } = "";
+        public bool configured { get; set; }
     }
 
     public sealed class PtzMoveResult
