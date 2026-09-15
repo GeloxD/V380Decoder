@@ -302,8 +302,11 @@ curl http://localhost:8080/api/ptz/native-presets
 curl -X POST http://localhost:8080/api/ptz/native-presets/1 \
   -H 'Content-Type: application/json' -d '{"name":"Front door"}'
 
-# Recall native slot 1 directly.
+# Recall native slot 1 directly and wait until the video has settled.
 curl -X POST http://localhost:8080/api/ptz/native-presets/1/goto
+
+# Optionally set the settling timeout (1,000-15,000 ms; default 5,000).
+curl -X POST 'http://localhost:8080/api/ptz/native-presets/1/goto?timeoutMs=4000'
 
 # Remove V380Decoder's local name mapping. The camera position remains stored
 # because the captured V380 app deletion flow sends no camera-side delete command.

@@ -113,6 +113,44 @@ namespace V380Decoder.src
             return recalled;
         }
 
+        public async Task<PtzNativePresetRecallResult> RecallNativePresetAndWaitAsync(
+            int slot,
+            int timeoutMs,
+            CancellationToken cancellationToken = default)
+        {
+            if (!IsValidNativeSlot(slot))
+            {
+                return new PtzNativePresetRecallResult
+                {
+                    slot = slot,
+                    error = $"Preset slot must be between 1 and {NativePresetSlotCount}."
+                };
+            }
+
+            await movementLock.WaitAsync(cancellationToken);
+            try
+            {
+                var settling = await client.snapshotManager.RunAndWaitForVisualSettlingAsync(
+                    () => client.PtzRecallNativePreset(slot),
+                    timeoutMs,
+                    cancellationToken);
+
+                return new PtzNativePresetRecallResult
+                {
+                    ok = settling.commandAccepted,
+                    accepted = settling.commandAccepted,
+                    slot = slot,
+                    settled = settling.settled,
+                    movementObserved = settling.movementObserved,
+                    timedOut = settling.timedOut,
+                    elapsedMs = settling.elapsedMs,
+                    sampledFrames = settling.sampledFrames,
+                    error = settling.commandAccepted ? null : "The camera control connection is unavailable."
+                };
+            }
+            finally { movementLock.Release(); }
+        }
+
         public bool DeleteNativePreset(int slot, out string? error)
         {
             if (!IsValidNativeSlot(slot))

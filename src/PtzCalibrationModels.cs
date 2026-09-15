@@ -49,6 +49,19 @@ namespace V380Decoder.src
         public bool configured { get; set; }
     }
 
+    public sealed class PtzNativePresetRecallResult
+    {
+        public bool ok { get; set; }
+        public bool accepted { get; set; }
+        public int slot { get; set; }
+        public bool settled { get; set; }
+        public bool movementObserved { get; set; }
+        public bool timedOut { get; set; }
+        public int elapsedMs { get; set; }
+        public int sampledFrames { get; set; }
+        public string? error { get; set; }
+    }
+
     public sealed class PtzMoveResult
     {
         public bool ok { get; set; }

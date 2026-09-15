@@ -43,6 +43,7 @@ namespace V380Decoder.src
         private byte[] _sps, _pps;
 
         private bool _mjpegActive = false;
+        private int _temporaryDecodeUsers;
         private byte[] _lastIFrame = null;
         private readonly SemaphoreSlim _snapshotSem = new(1, 1);
 
@@ -67,6 +68,17 @@ namespace V380Decoder.src
             LogUtils.debug($"[SNAP] MJPEG {(active ? "enable" : "disabled")}");
         }
 
+        public IDisposable AcquireTemporaryDecoding()
+        {
+            Interlocked.Increment(ref _temporaryDecodeUsers);
+            LogUtils.debug("[SNAP] temporary frame decoding acquired");
+            return new Subscription(() =>
+            {
+                Interlocked.Decrement(ref _temporaryDecodeUsers);
+                LogUtils.debug("[SNAP] temporary frame decoding released");
+            });
+        }
+
         public void UpdateFrame(byte[] h264Frame, int width, int height, bool isIFrame)
         {
             lock (_lock)
@@ -81,7 +93,7 @@ namespace V380Decoder.src
                 lock (_lock) { _lastIFrame = (byte[])h264Frame.Clone(); }
             }
 
-            if (!_mjpegActive) return;
+            if (!_mjpegActive && Volatile.Read(ref _temporaryDecodeUsers) == 0) return;
 
             if (_useFFmpeg)
             {
@@ -154,6 +166,107 @@ namespace V380Decoder.src
         {
             lock (_subLock) _subscribers.Add(callback);
             return new Subscription(() => { lock (_subLock) _subscribers.Remove(callback); });
+        }
+
+        public async Task<VisualSettlingResult> RunAndWaitForVisualSettlingAsync(
+            Func<bool> startMovement,
+            int timeoutMs = 5000,
+            CancellationToken cancellationToken = default)
+        {
+            const int sampleIntervalMs = 200;
+            const int stableSamplesRequired = 3;
+            const int noMovementGraceMs = 1500;
+            const int motionThreshold = 6;
+            const int stableThreshold = 2;
+
+            timeoutMs = Math.Clamp(timeoutMs, 1000, 15_000);
+            var frames = System.Threading.Channels.Channel.CreateBounded<byte[]>(
+                new System.Threading.Channels.BoundedChannelOptions(1)
+                {
+                    FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest,
+                    SingleReader = true,
+                    SingleWriter = false
+                });
+
+            using var decoding = AcquireTemporaryDecoding();
+            using var subscription = Subscribe(jpeg => frames.Writer.TryWrite(jpeg));
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(timeoutMs);
+
+            if (!startMovement())
+                return new VisualSettlingResult { commandAccepted = false };
+
+            var timer = Stopwatch.StartNew();
+            byte[]? previous = null;
+            int stableSamples = 0;
+            int sampledFrames = 0;
+            bool movementObserved = false;
+            long lastSampleAt = -sampleIntervalMs;
+
+            try
+            {
+                while (true)
+                {
+                    var jpeg = await frames.Reader.ReadAsync(timeout.Token);
+                    long now = timer.ElapsedMilliseconds;
+                    if (now - lastSampleAt < sampleIntervalMs) continue;
+                    lastSampleAt = now;
+
+                    byte[] current;
+                    try { current = CreateLuminanceThumbnail(jpeg); }
+                    catch (Exception ex)
+                    {
+                        LogUtils.debug($"[SNAP] settling frame decode failed: {ex.Message}");
+                        continue;
+                    }
+
+                    sampledFrames++;
+                    if (previous != null)
+                    {
+                        int difference = MedianAbsoluteDifference(previous, current);
+                        if (difference >= motionThreshold)
+                        {
+                            movementObserved = true;
+                            stableSamples = 0;
+                        }
+                        else if (difference <= stableThreshold &&
+                                 (movementObserved || now >= noMovementGraceMs))
+                        {
+                            stableSamples++;
+                        }
+                        else
+                        {
+                            stableSamples = 0;
+                        }
+
+                        LogUtils.debug($"[SNAP] settling difference={difference} stable={stableSamples} moved={movementObserved}");
+                        if (stableSamples >= stableSamplesRequired)
+                        {
+                            return new VisualSettlingResult
+                            {
+                                commandAccepted = true,
+                                settled = true,
+                                movementObserved = movementObserved,
+                                elapsedMs = (int)timer.ElapsedMilliseconds,
+                                sampledFrames = sampledFrames
+                            };
+                        }
+                    }
+                    previous = current;
+                }
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return new VisualSettlingResult
+                {
+                    commandAccepted = true,
+                    settled = false,
+                    movementObserved = movementObserved,
+                    timedOut = true,
+                    elapsedMs = (int)timer.ElapsedMilliseconds,
+                    sampledFrames = sampledFrames
+                };
+            }
         }
 
         // ── decode loop ───────────────────────────────────────────
@@ -372,6 +485,35 @@ namespace V380Decoder.src
             return ms.ToArray();
         }
 
+        private static byte[] CreateLuminanceThumbnail(byte[] jpeg)
+        {
+            const int thumbnailWidth = 64;
+            const int thumbnailHeight = 36;
+            using var image = Image.Load<Rgb24>(jpeg);
+            var pixels = new byte[thumbnailWidth * thumbnailHeight];
+
+            for (int y = 0; y < thumbnailHeight; y++)
+            {
+                int sourceY = Math.Min(image.Height - 1, (y * image.Height + image.Height / 2) / thumbnailHeight);
+                for (int x = 0; x < thumbnailWidth; x++)
+                {
+                    int sourceX = Math.Min(image.Width - 1, (x * image.Width + image.Width / 2) / thumbnailWidth);
+                    Rgb24 pixel = image[sourceX, sourceY];
+                    pixels[y * thumbnailWidth + x] = (byte)((77 * pixel.R + 150 * pixel.G + 29 * pixel.B) >> 8);
+                }
+            }
+            return pixels;
+        }
+
+        private static int MedianAbsoluteDifference(byte[] first, byte[] second)
+        {
+            var differences = new byte[Math.Min(first.Length, second.Length)];
+            for (int i = 0; i < differences.Length; i++)
+                differences[i] = (byte)Math.Abs(first[i] - second[i]);
+            Array.Sort(differences);
+            return differences[differences.Length / 2];
+        }
+
         private void Notify(byte[] jpeg)
         {
             List<Action<byte[]>> subs;
@@ -425,5 +567,15 @@ namespace V380Decoder.src
         {
             public void Dispose() => onDispose();
         }
+    }
+
+    public sealed class VisualSettlingResult
+    {
+        public bool commandAccepted { get; set; }
+        public bool settled { get; set; }
+        public bool movementObserved { get; set; }
+        public bool timedOut { get; set; }
+        public int elapsedMs { get; set; }
+        public int sampledFrames { get; set; }
     }
 }

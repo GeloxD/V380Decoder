@@ -206,11 +206,13 @@ namespace V380Decoder.src
                         ? Results.Ok(ptz.GetNativePresets().Single(preset => preset.slot == slot))
                         : Results.BadRequest(new { error });
                 });
-                api.MapPost("/api/ptz/native-presets/{slot:int}/goto", (int slot) =>
+                api.MapPost("/api/ptz/native-presets/{slot:int}/goto", async (int slot, int? timeoutMs, HttpContext ctx) =>
                 {
-                    return ptz.RecallNativePreset(slot, out var error)
-                        ? Results.Ok(new { ok = true, slot })
-                        : Results.BadRequest(new { error });
+                    var result = await ptz.RecallNativePresetAndWaitAsync(
+                        slot,
+                        timeoutMs ?? 5000,
+                        ctx.RequestAborted);
+                    return result.ok ? Results.Ok(result) : Results.BadRequest(result);
                 });
                 api.MapDelete("/api/ptz/native-presets/{slot:int}", (int slot) =>
                 {
