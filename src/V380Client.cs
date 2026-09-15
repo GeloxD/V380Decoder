@@ -23,6 +23,7 @@ namespace V380Decoder.src
         private byte[] aesKey = new byte[16];
         private bool needReconnect = false;
         private DeviceInfo deviceInfo;
+        public SoftwarePtzController Ptz { get; }
 
 
         public V380Client(string ip, int port, uint deviceId, string username, string password, SourceStream source, OutputMode mode, bool enableMjpeg)
@@ -37,6 +38,7 @@ namespace V380Decoder.src
             this.enableMjpeg = enableMjpeg;
             snapshotManager = new SnapshotManager();
             snapshotManager.SetMjpegActive(enableMjpeg);
+            Ptz = new SoftwarePtzController(SendPtzCommand);
         }
 
         public void Run(RtspServer rtsp, CancellationToken ct)
@@ -656,11 +658,11 @@ namespace V380Decoder.src
         ushort ReadUInt16LE(byte[] b, int o) => (ushort)(b[o] | (b[o + 1] << 8));
         ulong ReadUInt64LE(byte[] b, int o) { ulong v = 0; for (int i = 0; i < 8; i++) v |= ((ulong)b[o + i]) << (i * 8); return v; }
 
-        public bool PtzRight() => SendControl(V380Commands.PTZ_RIGHT);
-        public bool PtzLeft() => SendControl(V380Commands.PTZ_LEFT);
-        public bool PtzUp() => SendControl(V380Commands.PTZ_UP);
-        public bool PtzDown() => SendControl(V380Commands.PTZ_DOWN);
-        public bool PtzStop() => SendControl(V380Commands.PTZ_STOP);
+        public bool PtzRight() { Ptz.Move(PtzDirection.Right); return true; }
+        public bool PtzLeft() { Ptz.Move(PtzDirection.Left); return true; }
+        public bool PtzUp() { Ptz.Move(PtzDirection.Up); return true; }
+        public bool PtzDown() { Ptz.Move(PtzDirection.Down); return true; }
+        public bool PtzStop() { Ptz.Stop(); return true; }
         public bool LightOn() => SendControl(V380Commands.LIGHT_ON);
         public bool LightOff() => SendControl(V380Commands.LIGHT_OFF);
         public bool LightAuto() => SendControl(V380Commands.LIGHT_AUTO);
@@ -672,6 +674,18 @@ namespace V380Decoder.src
         {
             if (streamStream == null) return false;
             return SendData(streamStream, payload);
+        }
+
+        private void SendPtzCommand(PtzDirection direction)
+        {
+            SendControl(direction switch
+            {
+                PtzDirection.Right => V380Commands.PTZ_RIGHT,
+                PtzDirection.Left => V380Commands.PTZ_LEFT,
+                PtzDirection.Up => V380Commands.PTZ_UP,
+                PtzDirection.Down => V380Commands.PTZ_DOWN,
+                _ => V380Commands.PTZ_STOP
+            });
         }
 
         public string GetDeviceId()
@@ -705,6 +719,7 @@ namespace V380Decoder.src
 
         public void Dispose()
         {
+            Ptz.Dispose();
             authStream?.Close(); authClient?.Close();
             streamStream?.Close(); streamClient?.Close();
             snapshotManager?.Dispose();

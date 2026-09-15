@@ -151,11 +151,27 @@ namespace V380Decoder.src
 
                 api.MapGet("/", () => Results.Content(WebPage.GetHtml(enableMjpeg), "text/html"));
 
-                api.MapPost("/api/ptz/right", () => { client.PtzRight(); LogUtils.debug("[API] PTZ Right"); Results.Ok(); });
-                api.MapPost("/api/ptz/left", () => { client.PtzLeft(); LogUtils.debug("[API] PTZ Left"); Results.Ok(); });
-                api.MapPost("/api/ptz/up", () => { client.PtzUp(); LogUtils.debug("[API] PTZ Up"); Results.Ok(); });
-                api.MapPost("/api/ptz/down", () => { client.PtzDown(); LogUtils.debug("[API] PTZ Down"); Results.Ok(); });
-                api.MapPost("/api/ptz/stop", () => { client.PtzStop(); LogUtils.debug("[API] PTZ Stop"); Results.Ok(); });
+                api.MapPost("/api/ptz/right", () => { client.PtzRight(); LogUtils.debug("[API] PTZ Right"); return Results.Ok(); });
+                api.MapPost("/api/ptz/left", () => { client.PtzLeft(); LogUtils.debug("[API] PTZ Left"); return Results.Ok(); });
+                api.MapPost("/api/ptz/up", () => { client.PtzUp(); LogUtils.debug("[API] PTZ Up"); return Results.Ok(); });
+                api.MapPost("/api/ptz/down", () => { client.PtzDown(); LogUtils.debug("[API] PTZ Down"); return Results.Ok(); });
+                api.MapPost("/api/ptz/stop", () => { client.PtzStop(); LogUtils.debug("[API] PTZ Stop"); return Results.Ok(); });
+                api.MapPost("/api/ptz/calibrate", async (CancellationToken ct) =>
+                {
+                    await client.Ptz.CalibrateAsync(ct);
+                    return Results.Ok(client.Ptz.GetStatus());
+                });
+                api.MapGet("/api/ptz/status", () => Results.Ok(client.Ptz.GetStatus()));
+                api.MapGet("/api/ptz/presets", () => Results.Ok(client.Ptz.GetPresets()));
+                api.MapPost("/api/ptz/presets/{token}", (string token, string name) =>
+                    Results.Ok(client.Ptz.SetPreset(name, token)));
+                api.MapPost("/api/ptz/presets/{token}/goto", async (string token, CancellationToken ct) =>
+                {
+                    await client.Ptz.GoToPresetAsync(token, ct);
+                    return Results.Ok(client.Ptz.GetStatus());
+                });
+                api.MapDelete("/api/ptz/presets/{token}", (string token) =>
+                    client.Ptz.RemovePreset(token) ? Results.NoContent() : Results.NotFound());
 
                 api.MapPost("/api/light/on", () => { client.LightOn(); LogUtils.debug("[API] Light On"); Results.Ok(); });
                 api.MapPost("/api/light/off", () => { client.LightOff(); LogUtils.debug("[API] Light Off"); Results.Ok(); });
