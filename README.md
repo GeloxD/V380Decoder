@@ -108,9 +108,12 @@ http://192.168.1.3:8080/onvif/device_service
 **Features:**
 - ✅ Live video
 - ✅ PTZ control (pan/tilt)
+- ✅ Six named camera-native PTZ presets (set, list, recall, and remove mapping)
 - ✅ Imaging settings (light control)
 - ✅ Media profiles
 - ✅ Device discovery
+
+ONVIF preset tokens `1` through `6` map directly to the camera's six native slots. `SetPreset` saves the current physical view, `GotoPreset` recalls it without re-homing, and `GetPresets` returns names stored in `/data/ptz-state.json`. `RemovePreset` removes that local name mapping; the camera retains the motor position until the slot is overwritten. Absolute PTZ position is intentionally omitted from `GetStatus` because this camera protocol does not provide trustworthy coordinates.
 
 ## Web UI & REST API
 

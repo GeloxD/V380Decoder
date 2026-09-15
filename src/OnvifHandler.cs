@@ -7,9 +7,11 @@ namespace V380Decoder.src
   public class OnvifHandler
   {
     private static Timer ptzStopTimer;
+    private static Timer ptzPulseTimer;
     private static readonly object ptzLock = new();
+    private static bool ptzMoving;
 
-    public static string Handle(string action, string body, HttpContext ctx, V380Client camera, int httpPort, int rtspPort, bool secure = false, string username = "", string password = "")
+    public static string Handle(string action, string body, HttpContext ctx, V380Client camera, PtzCalibrationService ptz, int httpPort, int rtspPort, bool secure = false, string username = "", string password = "")
     {
       if (secure
           && !Contains(action, body, "GetSystemDateAndTime")
@@ -46,18 +48,19 @@ namespace V380Decoder.src
       else if (Contains(action, body, "GetAudioEncoderConfigurations")) return RespGetAudioEncoderConfigurations();
       else if (Contains(action, body, "GetAudioEncoderConfiguration")) return RespGetAudioEncoderConfig();
       else if (Contains(action, body, "GetServiceCapabilities")) return RespServiceCapabilities(ctx);
-      else if (Contains(action, body, "GetPresets")) return RespGetPresets();
+      else if (Contains(action, body, "GetPresets")) return RespGetPresets(ptz);
       else if (Contains(action, body, "GetNodes")) return RespGetNodes();
       else if (Contains(action, body, "GetConfigurationOptions")) return RespGetConfigOptions();
       else if (Contains(action, body, "GetConfigurations")) return RespGetConfigurations();
       else if (Contains(action, body, "GetConfiguration")) return RespGetConfigurations();
       else if (Contains(action, body, "GetStatus")) return RespGetStatus();
       else if (Contains(action, body, "ContinuousMove")) return HandleContinuousMove(body, camera);
-      else if (Contains(action, body, "AbsoluteMove")) return SoapOk("AbsoluteMove");
-      else if (Contains(action, body, "RelativeMove")) return SoapOk("RelativeMove");
-      else if (Contains(action, body, "GotoHomePosition")) return SoapOk("GotoHomePosition");
-      else if (Contains(action, body, "SetPreset")) return SoapOk("SetPreset");
-      else if (Contains(action, body, "RemovePreset")) return SoapOk("RemovePreset");
+      else if (Contains(action, body, "AbsoluteMove")) return SoapFault("ActionNotSupported", "Absolute PTZ coordinates are not available from this camera protocol.");
+      else if (Contains(action, body, "RelativeMove")) return SoapFault("ActionNotSupported", "Relative coordinate moves are not supported; use ContinuousMove.");
+      else if (Contains(action, body, "GotoHomePosition")) return SoapFault("ActionNotSupported", "No camera-native home slot has been configured.");
+      else if (Contains(action, body, "SetPreset")) return HandleSetPreset(body, ptz);
+      else if (Contains(action, body, "GotoPreset")) return HandleGotoPreset(body, ptz);
+      else if (Contains(action, body, "RemovePreset")) return HandleRemovePreset(body, ptz);
       else if (Contains(action, body, "Stop")) return HandleStop(camera);
       else if (Contains(action, body, "SetImagingSettings")) return HandleSetImaging(body, camera);
       else if (Contains(action, body, "GetImagingSettings")) return RespGetImagingSettings();
@@ -152,19 +155,33 @@ namespace V380Decoder.src
     {
       float x = ParseFloat(body, "x");
       float y = ParseFloat(body, "y");
-      float durationSec = ParseFloat(body, "Timeout", 1.0f);
+      float durationSec = ParseDurationSeconds(body, "Timeout", 1.0f);
       int durationMs = Math.Clamp((int)(durationSec * 1000), 100, 5000);
 
       lock (ptzLock)
       {
         ptzStopTimer?.Dispose();
+        ptzPulseTimer?.Dispose();
 
-        if (x > 0.1f) { camera.PtzRight(); LogUtils.debug("[ONVIF] PTZ → RIGHT"); }
-        else if (x < -0.1f) { camera.PtzLeft(); LogUtils.debug("[ONVIF] PTZ → LEFT"); }
-        else if (y > 0.1f) { camera.PtzUp(); LogUtils.debug("[ONVIF] PTZ → UP"); }
-        else if (y < -0.1f) { camera.PtzDown(); LogUtils.debug("[ONVIF] PTZ → DOWN"); }
+        Func<bool>? command = null;
+        string direction = "IDLE";
+        if (x > 0.1f) { command = camera.PtzRight; direction = "RIGHT"; }
+        else if (x < -0.1f) { command = camera.PtzLeft; direction = "LEFT"; }
+        else if (y > 0.1f) { command = camera.PtzUp; direction = "UP"; }
+        else if (y < -0.1f) { command = camera.PtzDown; direction = "DOWN"; }
 
-        ptzStopTimer = new Timer(_ => camera.PtzStop(), null, durationMs, Timeout.Infinite);
+        if (command != null)
+        {
+          ptzMoving = true;
+          ptzPulseTimer = new Timer(_ => command(), null, 0, 100);
+          ptzStopTimer = new Timer(_ => StopPtzTimers(camera), null, durationMs, Timeout.Infinite);
+        }
+        else
+        {
+          ptzMoving = false;
+          camera.PtzStop();
+        }
+        LogUtils.debug($"[ONVIF] PTZ → {direction}");
       }
 
       return SoapOk("ContinuousMove");
@@ -175,10 +192,87 @@ namespace V380Decoder.src
       lock (ptzLock)
       {
         ptzStopTimer?.Dispose();
+        ptzPulseTimer?.Dispose();
+        ptzStopTimer = null;
+        ptzPulseTimer = null;
+        ptzMoving = false;
         camera.PtzStop();
       }
       LogUtils.debug("[ONVIF] PTZ → STOP");
       return SoapOk("Stop");
+    }
+
+    private static void StopPtzTimers(V380Client camera)
+    {
+      lock (ptzLock)
+      {
+        ptzPulseTimer?.Dispose();
+        ptzStopTimer?.Dispose();
+        ptzPulseTimer = null;
+        ptzStopTimer = null;
+        ptzMoving = false;
+        camera.PtzStop();
+      }
+    }
+
+    private static string HandleSetPreset(string body, PtzCalibrationService ptz)
+    {
+      string tokenText = ParseTag(body, "PresetToken");
+      string name = ParseTag(body, "PresetName");
+      int slot;
+      if (string.IsNullOrWhiteSpace(tokenText))
+      {
+        var available = ptz.GetNativePresets().FirstOrDefault(preset => !preset.configured);
+        if (available == null) return SoapFault("NoEntity", "All six native preset slots are configured.");
+        slot = available.slot;
+      }
+      else if (!int.TryParse(tokenText, out slot))
+      {
+        return SoapFault("InvalidArgVal", $"Preset token '{tokenText}' is not a valid native slot.");
+      }
+
+      if (!ptz.SaveNativePreset(slot, name, out var error))
+        return SoapFault("InvalidArgVal", error ?? "The native preset could not be saved.");
+
+      LogUtils.debug($"[ONVIF] Saved native preset {slot}");
+      return Envelope($@"
+              <tptz:SetPresetResponse>
+                <tptz:PresetToken>{slot}</tptz:PresetToken>
+              </tptz:SetPresetResponse>");
+    }
+
+    private static string HandleGotoPreset(string body, PtzCalibrationService ptz)
+    {
+      if (!TryParsePresetSlot(body, out int slot, out string? error))
+        return SoapFault("InvalidArgVal", error!);
+      if (!ptz.RecallNativePreset(slot, out error))
+        return SoapFault("NoEntity", error ?? "The native preset could not be recalled.");
+
+      LogUtils.debug($"[ONVIF] Recalling native preset {slot}");
+      return SoapOk("GotoPreset");
+    }
+
+    private static string HandleRemovePreset(string body, PtzCalibrationService ptz)
+    {
+      if (!TryParsePresetSlot(body, out int slot, out string? error))
+        return SoapFault("InvalidArgVal", error!);
+      if (!ptz.DeleteNativePreset(slot, out error))
+        return SoapFault("NoEntity", error ?? "The local preset mapping could not be removed.");
+
+      LogUtils.debug($"[ONVIF] Removed local mapping for native preset {slot}");
+      return SoapOk("RemovePreset");
+    }
+
+    private static bool TryParsePresetSlot(string body, out int slot, out string? error)
+    {
+      string tokenText = ParseTag(body, "PresetToken");
+      if (!int.TryParse(tokenText, out slot) || slot < 1 || slot > PtzCalibrationService.NativePresetSlotCount)
+      {
+        error = $"Preset token must be a number from 1 to {PtzCalibrationService.NativePresetSlotCount}.";
+        return false;
+      }
+      error = null;
+      return true;
     }
 
     private static string HandleSetImaging(string body, V380Client camera)
@@ -489,7 +583,7 @@ namespace V380Decoder.src
                       <tt:YRange><tt:Min>-1</tt:Min><tt:Max>1</tt:Max></tt:YRange>
                     </tt:ContinuousPanTiltVelocitySpace>
                   </tt:SupportedPTZSpaces>
-                  <tt:MaximumNumberOfPresets>0</tt:MaximumNumberOfPresets>
+                  <tt:MaximumNumberOfPresets>6</tt:MaximumNumberOfPresets>
                   <tt:HomeSupported>false</tt:HomeSupported>
                 </tptz:PTZNode>
               </tptz:GetNodesResponse>");
@@ -641,26 +735,34 @@ namespace V380Decoder.src
                 </tds:HostnameInformation>
               </tds:GetHostnameResponse>");
 
-    private static string RespGetStatus() => Envelope($@"
+    private static string RespGetStatus()
+    {
+      string moveStatus;
+      lock (ptzLock) moveStatus = ptzMoving ? "MOVING" : "IDLE";
+      return Envelope($@"
               <tptz:GetStatusResponse>
                 <tptz:PTZStatus>
-                  <tt:Position>
-                    <tt:PanTilt x=""0"" y=""0""
-                      space=""http://www.onvif.org/ver10/tptz/PanTiltSpaces/PositionGenericSpace""/>
-                    <tt:Zoom x=""0""
-                      space=""http://www.onvif.org/ver10/tptz/ZoomSpaces/PositionGenericSpace""/>
-                  </tt:Position>
                   <tt:MoveStatus>
-                    <tt:PanTilt>IDLE</tt:PanTilt>
+                    <tt:PanTilt>{moveStatus}</tt:PanTilt>
                     <tt:Zoom>IDLE</tt:Zoom>
                   </tt:MoveStatus>
                   <tt:UtcTime>{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ssZ}</tt:UtcTime>
                 </tptz:PTZStatus>
               </tptz:GetStatusResponse>");
+    }
 
-    private static string RespGetPresets() => Envelope(@"
-              <tptz:GetPresetsResponse>
+    private static string RespGetPresets(PtzCalibrationService ptz)
+    {
+      string presets = string.Join("", ptz.GetNativePresets()
+        .Where(preset => preset.configured)
+        .Select(preset => $@"
+                <tptz:Preset token=""{preset.slot}"">
+                  <tt:Name>{System.Security.SecurityElement.Escape(preset.name)}</tt:Name>
+                </tptz:Preset>"));
+      return Envelope($@"
+              <tptz:GetPresetsResponse>{presets}
               </tptz:GetPresetsResponse>");
+    }
 
     private static string RespGetMoveOptions() => Envelope(@"
               <timg:GetMoveOptionsResponse>
@@ -878,11 +980,28 @@ namespace V380Decoder.src
           System.Globalization.CultureInfo.InvariantCulture, out float v) ? v : def;
     }
 
+    static float ParseDurationSeconds(string body, string tag, float def)
+    {
+      string value = ParseTag(body, tag);
+      if (string.IsNullOrWhiteSpace(value))
+      {
+        var attribute = Regex.Match(body, $@"{tag}=""([^""]+)""", RegexOptions.IgnoreCase);
+        if (attribute.Success) value = attribute.Groups[1].Value.Trim();
+      }
+      if (string.IsNullOrWhiteSpace(value)) return ParseFloat(body, tag, def);
+      try { return (float)System.Xml.XmlConvert.ToTimeSpan(value).TotalSeconds; }
+      catch (FormatException)
+      {
+        return float.TryParse(value, System.Globalization.NumberStyles.Float,
+          System.Globalization.CultureInfo.InvariantCulture, out float seconds) ? seconds : def;
+      }
+    }
+
     static string ParseTag(string body, string tag)
     {
       var m = System.Text.RegularExpressions.Regex.Match(
           body, $@"<[^>]*{tag}[^>]*>([^<]*)<", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-      return m.Success ? m.Groups[1].Value.Trim() : "";
+      return m.Success ? System.Net.WebUtility.HtmlDecode(m.Groups[1].Value.Trim()) : "";
     }
   }
 }

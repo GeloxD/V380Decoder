@@ -280,7 +280,7 @@ namespace V380Decoder.src
                 action = action.Substring(4);
 
 
-            string resp = OnvifHandler.Handle(action, body, ctx, client, httpPort, rtspPort, secure, username, password);
+            string resp = OnvifHandler.Handle(action, body, ctx, client, ptz, httpPort, rtspPort, secure, username, password);
 
             LogUtils.debug($"[ONVIF] response: {(resp.Length > 300 ? resp[..300] + "..." : resp)}");
 
