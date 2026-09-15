@@ -662,7 +662,7 @@ namespace V380Decoder.src
         public bool PtzDown() => SendControl(V380Commands.PTZ_DOWN);
         public bool PtzStop() => SendControl(V380Commands.PTZ_STOP);
         public bool PtzRecallNativePreset(int slot) =>
-            IsValidNativePresetSlot(slot) && SendControl(V380Commands.NativePresetRecall(slot));
+            IsValidNativePresetSlot(slot) && SendControl(V380Commands.NativePresetRecall(slot - 1));
 
         public bool PtzSetNativePreset(int slot)
         {
@@ -677,14 +677,15 @@ namespace V380Decoder.src
                 using NetworkStream presetStream = presetClient.GetStream();
 
                 // Captured from V380 Pro while saving a camera-side preset:
-                // command 329, channel 1, current auth ticket, operation 102, slot.
+                // command 329, channel 1, current auth ticket, operation 102,
+                // then a zero-based slot (the apps display it as slot + 1).
                 var request = new byte[256];
                 WriteUInt32LE(request, 0, 329);
                 WriteUInt32LE(request, 4, deviceId);
                 request[8] = 1;
                 WriteUInt32LE(request, 9, authTicket);
                 WriteUInt32LE(request, 13, 102);
-                WriteUInt32LE(request, 17, (uint)slot);
+                WriteUInt32LE(request, 17, (uint)(slot - 1));
                 if (!SendData(presetStream, request)) return false;
 
                 byte[] response = ReceiveData(presetStream, 32);

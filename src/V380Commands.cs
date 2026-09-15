@@ -21,12 +21,12 @@ namespace V380Decoder.src
         public static readonly byte[] IMAGE_FLIP = [0xbe, 0x0, 0x0, 0x0, 0xe8, 0x3, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0];
 
         // Captured from V380 Pro while recalling a camera-side preset.
-        public static byte[] NativePresetRecall(int slot)
+        public static byte[] NativePresetRecall(int rawSlot)
         {
             var command = new byte[16];
             WriteUInt32LE(command, 0, 171);
             WriteUInt32LE(command, 4, 103);
-            WriteUInt32LE(command, 8, (uint)slot);
+            WriteUInt32LE(command, 8, (uint)rawSlot);
             return command;
         }
 

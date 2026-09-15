@@ -299,7 +299,7 @@ curl -X POST http://localhost:8080/api/ptz/native-presets/1
 curl -X POST http://localhost:8080/api/ptz/native-presets/1/goto
 ```
 
-Slots 1 through 16 are accepted by the API. Device support beyond captured slot 1 is experimental.
+API slots use the same one-based numbering shown in V380 Pro. The camera protocol is zero-based, so API slot 2 is encoded as raw slot 1. Slots 1 through 16 are accepted; device support beyond the captured and tested slots remains experimental.
 
 ## Acknowledgements
 
