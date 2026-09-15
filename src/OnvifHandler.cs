@@ -460,8 +460,7 @@ namespace V380Decoder.src
                     <tt:UseCount>1</tt:UseCount>
                     <tt:NodeToken>PTZNode_1</tt:NodeToken>
                     <tt:DefaultContinuousPanTiltVelocitySpace>http://www.onvif.org/ver10/tptz/PanTiltSpaces/VelocityGenericSpace</tt:DefaultContinuousPanTiltVelocitySpace>
-                    <tt:DefaultRelativePanTiltTranslationSpace>http://www.onvif.org/ver10/tptz/PanTiltSpaces/TranslationGenericSpace</tt:DefaultRelativePanTiltTranslationSpace>
-                    <tt:DefaultAbsolutePantTiltPositionSpace>http://www.onvif.org/ver10/tptz/PanTiltSpaces/PositionGenericSpace</tt:DefaultAbsolutePantTiltPositionSpace>
+                    <tt:DefaultPTZTimeout>PT1S</tt:DefaultPTZTimeout>
                   </tt:PTZConfiguration>
                 </trt:Profiles>
               </trt:GetProfilesResponse>");
