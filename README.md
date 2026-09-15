@@ -243,6 +243,49 @@ docker build -t v380decoder .
 docker run -d --restart unless-stopped --network host v380decoder --id 12345678 --username admin --password password --ip 192.168.1.2 --enable-onvif --enable-api
 ```
 
+## Software-calibrated PTZ presets
+
+The camera does not provide verified absolute PTZ coordinates. The calibration API records only timed movements issued through `/api/ptz/move`; its `pan` and `tilt` values are milliseconds of commanded movement, not degrees or camera-reported position.
+
+The state file defaults to `/data/ptz-state.json`. Mount `/data` to persistent host storage when using Docker:
+
+```bash
+docker run -d --restart unless-stopped --network host \
+  -v /opt/v380decoder-data:/data \
+  v380decoder --id 12345678 --username admin --password "$V380_PASSWORD" \
+  --ip 192.168.1.2 --enable-onvif --enable-api
+```
+
+### API
+
+All timed movement requests require a duration from 50 to 10000 milliseconds. Each timed move sends a direction, waits for that duration, then sends the camera stop command. A failed, cancelled, or manually overridden move is not added to the logical position.
+
+```bash
+# Set the current physical view as the software origin (0,0).
+curl -X POST http://localhost:8080/api/ptz/calibrate
+
+# Move right for 500 ms and update software position.
+curl -X POST http://localhost:8080/api/ptz/move \
+  -H 'Content-Type: application/json' \
+  -d '{"direction":"right","durationMs":500}'
+
+# Inspect the software-calibrated state.
+curl http://localhost:8080/api/ptz/calibration/status
+
+# Save, list, visit, and delete named presets.
+curl -X POST http://localhost:8080/api/ptz/presets \
+  -H 'Content-Type: application/json' -d '{"name":"front_door"}'
+curl http://localhost:8080/api/ptz/presets
+curl -X POST http://localhost:8080/api/ptz/presets/front_door/goto
+curl -X DELETE http://localhost:8080/api/ptz/presets/front_door
+
+# Save the current logical position temporarily, then restore it later.
+curl -X POST http://localhost:8080/api/ptz/save-position
+curl -X POST http://localhost:8080/api/ptz/restore-position
+```
+
+The original `/api/ptz/up`, `/down`, `/left`, and `/right` endpoints remain available for backwards compatibility, but they do not update software position. `POST /api/ptz/stop` now also cancels an active timed move.
+
 ## Acknowledgements
 
 - [prsyahmi/v380](https://github.com/prsyahmi/v380) - Original V380 reverse engineering work

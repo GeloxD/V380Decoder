@@ -20,6 +20,7 @@ namespace V380Decoder.src
         private readonly bool secure;
         private readonly string username;
         private readonly string password;
+        private readonly PtzCalibrationService ptz;
         private WebApplication app;
         public WebServer(
             int httpPort,
@@ -30,7 +31,8 @@ namespace V380Decoder.src
             bool enableMjpeg,
             bool secure,
             string username,
-            string password)
+            string password,
+            string ptzStateFile)
         {
             this.httpPort = httpPort;
             this.rtspPort = rtspPort;
@@ -41,6 +43,7 @@ namespace V380Decoder.src
             this.secure = secure;
             this.username = username;
             this.password = password;
+            ptz = new PtzCalibrationService(client, ptzStateFile);
         }
 
         public void Start()
@@ -155,7 +158,47 @@ namespace V380Decoder.src
                 api.MapPost("/api/ptz/left", () => { client.PtzLeft(); LogUtils.debug("[API] PTZ Left"); Results.Ok(); });
                 api.MapPost("/api/ptz/up", () => { client.PtzUp(); LogUtils.debug("[API] PTZ Up"); Results.Ok(); });
                 api.MapPost("/api/ptz/down", () => { client.PtzDown(); LogUtils.debug("[API] PTZ Down"); Results.Ok(); });
-                api.MapPost("/api/ptz/stop", () => { client.PtzStop(); LogUtils.debug("[API] PTZ Stop"); Results.Ok(); });
+                api.MapPost("/api/ptz/stop", () => Results.Ok(ptz.Stop()));
+
+                // Timed movement is deliberately separate from the legacy directional endpoints above.
+                // Only timed moves update the software-calibrated position.
+                api.MapPost("/api/ptz/move", async (PtzMoveRequest request) =>
+                {
+                    var result = await ptz.MoveAsync(request);
+                    return result.ok ? Results.Ok(result) : Results.BadRequest(result);
+                });
+                api.MapGet("/api/ptz/calibration/status", () => Results.Ok(ptz.GetStatus()));
+                api.MapPost("/api/ptz/calibrate", () =>
+                {
+                    ptz.Calibrate();
+                    return Results.Ok(ptz.GetStatus());
+                });
+                api.MapPost("/api/ptz/presets", (PtzPresetRequest request) =>
+                {
+                    return ptz.SavePreset(request.name, out var error)
+                        ? Results.Ok(ptz.GetStatus())
+                        : Results.BadRequest(new { error });
+                });
+                api.MapGet("/api/ptz/presets", () => Results.Ok(ptz.GetStatus().presets));
+                api.MapDelete("/api/ptz/presets/{name}", (string name) =>
+                {
+                    return ptz.DeletePreset(name) ? Results.NoContent() : Results.NotFound();
+                });
+                api.MapPost("/api/ptz/presets/{name}/goto", async (string name) =>
+                {
+                    var result = await ptz.GoToPresetAsync(name);
+                    return result.ok ? Results.Ok(result) : Results.BadRequest(result);
+                });
+                api.MapPost("/api/ptz/save-position", () =>
+                {
+                    ptz.SaveTemporaryPosition();
+                    return Results.Ok(ptz.GetStatus());
+                });
+                api.MapPost("/api/ptz/restore-position", async () =>
+                {
+                    var result = await ptz.RestoreAsync();
+                    return result.ok ? Results.Ok(result) : Results.BadRequest(result);
+                });
 
                 api.MapPost("/api/light/on", () => { client.LightOn(); LogUtils.debug("[API] Light On"); Results.Ok(); });
                 api.MapPost("/api/light/off", () => { client.LightOff(); LogUtils.debug("[API] Light Off"); Results.Ok(); });

@@ -31,6 +31,7 @@ if (args.Length > 0)
     bool enableMjpeg = ArgParser.GetArg(args, "--enable-mjpeg", false);
     int rtspPort = ArgParser.GetArg(args, "--rtsp-port", 8554);
     int httpPort = ArgParser.GetArg(args, "--http-port", 8080);
+    string ptzStateFile = ArgParser.GetArg(args, "--ptz-state-file", "/data/ptz-state.json");
     bool secure = ArgParser.GetArg(args, "--secure", false);
     bool debug = ArgParser.GetArg(args, "--debug", false);
 
@@ -99,7 +100,8 @@ if (args.Length > 0)
             rtspPort,
             secure,
             username,
-            password);
+            password,
+            ptzStateFile);
         rtsp.Start();
 
         webServer = new(
@@ -204,7 +206,10 @@ SERVER OPTIONS:
                          Provides REST API and web UI for camera control
   
   --http-port <number>   Web API server port (default: 8080)
-                         Example: --http-port 8080
+                          Example: --http-port 8080
+
+  --ptz-state-file <path> Persistent software-calibrated PTZ state file
+                          (default: /data/ptz-state.json)
   
   --enable-onvif         Enable ONVIF server (experimental) (default: false)
                          Works only with --output rtsp
