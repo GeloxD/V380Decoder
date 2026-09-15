@@ -154,10 +154,10 @@ namespace V380Decoder.src
 
                 api.MapGet("/", () => Results.Content(WebPage.GetHtml(enableMjpeg), "text/html"));
 
-                api.MapPost("/api/ptz/right", () => { client.PtzRight(); LogUtils.debug("[API] PTZ Right"); Results.Ok(); });
-                api.MapPost("/api/ptz/left", () => { client.PtzLeft(); LogUtils.debug("[API] PTZ Left"); Results.Ok(); });
-                api.MapPost("/api/ptz/up", () => { client.PtzUp(); LogUtils.debug("[API] PTZ Up"); Results.Ok(); });
-                api.MapPost("/api/ptz/down", () => { client.PtzDown(); LogUtils.debug("[API] PTZ Down"); Results.Ok(); });
+                api.MapPost("/api/ptz/right", () => PtzCommand(client.PtzRight, "Right"));
+                api.MapPost("/api/ptz/left", () => PtzCommand(client.PtzLeft, "Left"));
+                api.MapPost("/api/ptz/up", () => PtzCommand(client.PtzUp, "Up"));
+                api.MapPost("/api/ptz/down", () => PtzCommand(client.PtzDown, "Down"));
                 api.MapPost("/api/ptz/stop", () => Results.Ok(ptz.Stop()));
 
                 // Timed movement is deliberately separate from the legacy directional endpoints above.
@@ -286,6 +286,15 @@ namespace V380Decoder.src
 
             ctx.Response.ContentType = "application/soap+xml; charset=utf-8";
             await ctx.Response.WriteAsync(resp);
+        }
+
+        private static IResult PtzCommand(Func<bool> command, string direction)
+        {
+            bool sent = command();
+            LogUtils.debug($"[API] PTZ {direction}: {(sent ? "sent" : "failed")}");
+            return sent
+                ? Results.Ok(new { ok = true, direction })
+                : Results.Problem("The camera control connection is unavailable.", statusCode: 503);
         }
 
         public void Stop()

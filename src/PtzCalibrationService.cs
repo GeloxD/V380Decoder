@@ -13,6 +13,7 @@ namespace V380Decoder.src
         private const int MinTravelMs = 1_000;
         private const int MaxTravelMs = 60_000;
         private const int HomingMarginMs = 1_000;
+        public const int NativePresetSlotCount = 6;
         private readonly V380Client client;
         private readonly string stateFile;
         private readonly object stateLock = new();
@@ -51,7 +52,7 @@ namespace V380Decoder.src
         {
             lock (stateLock)
             {
-                return Enumerable.Range(1, 16).Select(slot => new PtzNativePresetEntry
+                return Enumerable.Range(1, NativePresetSlotCount).Select(slot => new PtzNativePresetEntry
                 {
                     slot = slot,
                     name = state.nativePresets.TryGetValue(slot, out var name) ? name : "",
@@ -64,7 +65,7 @@ namespace V380Decoder.src
         {
             if (!IsValidNativeSlot(slot))
             {
-                error = "Preset slot must be between 1 and 16.";
+                error = $"Preset slot must be between 1 and {NativePresetSlotCount}.";
                 return false;
             }
 
@@ -104,7 +105,7 @@ namespace V380Decoder.src
         {
             if (!IsValidNativeSlot(slot))
             {
-                error = "Preset slot must be between 1 and 16.";
+                error = $"Preset slot must be between 1 and {NativePresetSlotCount}.";
                 return false;
             }
             bool recalled = client.PtzRecallNativePreset(slot);
@@ -116,7 +117,7 @@ namespace V380Decoder.src
         {
             if (!IsValidNativeSlot(slot))
             {
-                error = "Preset slot must be between 1 and 16.";
+                error = $"Preset slot must be between 1 and {NativePresetSlotCount}.";
                 return false;
             }
             lock (stateLock)
@@ -385,7 +386,7 @@ namespace V380Decoder.src
         }
 
         private static bool IsValidName(string? name) => !string.IsNullOrWhiteSpace(name) && name.Length <= 64 && name.All(c => char.IsLetterOrDigit(c) || c is '_' or '-');
-        private static bool IsValidNativeSlot(int slot) => slot is >= 1 and <= 16;
+        private static bool IsValidNativeSlot(int slot) => slot is >= 1 && slot <= NativePresetSlotCount;
         private static bool IsValidNativeName(string? name) =>
             !string.IsNullOrWhiteSpace(name) && name.Length <= 64 && !name.Any(char.IsControl);
 

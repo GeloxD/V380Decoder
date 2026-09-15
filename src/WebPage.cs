@@ -29,6 +29,7 @@ namespace V380Decoder.src
         button:hover { transform: translateY(-1px); }
         button:disabled { cursor: wait; opacity: .55; transform: none; }
         .primary { color: white; background: #0284c7; }
+        .ptz-direction { touch-action: none; user-select: none; }
         .go { color: white; background: #16a34a; }
         .remove { color: #991b1b; background: #fee2e2; }
         .secondary { color: white; background: #64748b; }
@@ -60,12 +61,13 @@ namespace V380Decoder.src
         <h1>V380 Control</h1>" + sectionMjpeg + @"
         <section class='section'>
             <h2>PTZ Control</h2>
+            <p class='preset-note'>Press and hold a direction button, then release it to stop.</p>
             <div class='ptz-grid'>
-                <span></span><button class='primary' onclick=""command('/api/ptz/up')"">Up</button><span></span>
-                <button class='primary' onclick=""command('/api/ptz/left')"">Left</button>
-                <button class='secondary' onclick=""command('/api/ptz/stop')"">Stop</button>
-                <button class='primary' onclick=""command('/api/ptz/right')"">Right</button>
-                <span></span><button class='primary' onclick=""command('/api/ptz/down')"">Down</button><span></span>
+                <span></span><button class='primary ptz-direction' data-direction='up'>Up</button><span></span>
+                <button class='primary ptz-direction' data-direction='left'>Left</button>
+                <button class='secondary' id='ptz-stop'>Stop</button>
+                <button class='primary ptz-direction' data-direction='right'>Right</button>
+                <span></span><button class='primary ptz-direction' data-direction='down'>Down</button><span></span>
             </div>
         </section>
 
@@ -98,6 +100,7 @@ namespace V380Decoder.src
 
     <script>
         const statusBox = document.getElementById('status');
+        let ptzSession = 0;
         function showStatus(message, isError) {
             statusBox.textContent = message;
             statusBox.className = 'status show ' + (isError ? 'error' : 'success');
@@ -114,6 +117,45 @@ namespace V380Decoder.src
             try { await request(url, { method: 'POST' }); showStatus('Command sent.', false); }
             catch (error) { showStatus(error.message, true); }
         }
+        function delay(milliseconds) { return new Promise(function(resolve) { setTimeout(resolve, milliseconds); }); }
+        async function startPtz(direction) {
+            if (ptzSession !== 0) return;
+            const session = Date.now();
+            ptzSession = session;
+            try {
+                while (ptzSession === session) {
+                    await request('/api/ptz/' + direction, { method: 'POST' });
+                    await delay(100);
+                }
+            } catch (error) {
+                ptzSession = 0;
+                showStatus(error.message, true);
+            }
+        }
+        async function stopPtz() {
+            ptzSession = 0;
+            try { await request('/api/ptz/stop', { method: 'POST' }); }
+            catch (error) { showStatus(error.message, true); }
+        }
+        document.querySelectorAll('.ptz-direction').forEach(function(button) {
+            button.addEventListener('pointerdown', function(event) {
+                event.preventDefault();
+                button.setPointerCapture(event.pointerId);
+                startPtz(button.dataset.direction);
+            });
+            button.addEventListener('pointerup', stopPtz);
+            button.addEventListener('pointercancel', stopPtz);
+            button.addEventListener('lostpointercapture', stopPtz);
+            button.addEventListener('contextmenu', function(event) { event.preventDefault(); });
+            button.addEventListener('keydown', function(event) {
+                if ((event.key === 'Enter' || event.key === ' ') && !event.repeat) { event.preventDefault(); startPtz(button.dataset.direction); }
+            });
+            button.addEventListener('keyup', function(event) {
+                if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); stopPtz(); }
+            });
+        });
+        document.getElementById('ptz-stop').addEventListener('click', stopPtz);
+        window.addEventListener('blur', stopPtz);
         function makeButton(label, className, handler) {
             const button = document.createElement('button'); button.textContent = label; button.className = className; button.addEventListener('click', handler); return button;
         }

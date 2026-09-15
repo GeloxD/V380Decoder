@@ -307,7 +307,7 @@ curl -X POST http://localhost:8080/api/ptz/native-presets/1/goto
 curl -X DELETE http://localhost:8080/api/ptz/native-presets/1
 ```
 
-API slots use the same one-based numbering shown in V380 Pro. The camera protocol is zero-based, so API slot 2 is encoded as raw slot 1. An empty save request remains supported and uses the existing local name or `Preset N`. Slots 1 through 16 are accepted; device support beyond the captured and tested slots remains experimental. Names and slot visibility in the Android and iOS apps are separate app/account metadata and are not synchronized by this API.
+API slots use the same one-based numbering shown in V380 Pro. The camera protocol is zero-based, so API slot 2 is encoded as raw slot 1. An empty save request remains supported and uses the existing local name or `Preset N`. Slots 1 through 6 are accepted, matching the tested camera's native limit. Names and slot visibility in the Android and iOS apps are separate app/account metadata and are not synchronized by this API.
 
 ## Acknowledgements
 
