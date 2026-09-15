@@ -100,8 +100,7 @@ if (args.Length > 0)
             rtspPort,
             secure,
             username,
-            password,
-            ptzStateFile);
+            password);
         rtsp.Start();
 
         webServer = new(
@@ -113,7 +112,8 @@ if (args.Length > 0)
             enableMjpeg,
             secure,
             username,
-            password);
+            password,
+            ptzStateFile);
         webServer.Start();
     }
 
