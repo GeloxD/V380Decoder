@@ -146,6 +146,29 @@ curl -X POST http://192.168.1.3:8080/api/ptz/up
 curl -X POST http://192.168.1.3:8080/api/ptz/down
 ```
 
+### Software PTZ calibration and presets
+
+V380 cameras do not report motor coordinates. The decoder estimates a normalized
+pan/tilt position (`-1` to `1`) from motor run time so ONVIF absolute moves, home,
+and presets can work without changing the camera protocol. Before using those
+features, run calibration once after starting the decoder:
+
+```bash
+# The camera visits its left/down limits and then returns to the estimated center.
+curl -X POST http://192.168.1.3:8080/api/ptz/calibrate
+
+curl http://192.168.1.3:8080/api/ptz/status
+curl -X POST 'http://192.168.1.3:8080/api/ptz/presets/door?name=Front%20door'
+curl -X POST http://192.168.1.3:8080/api/ptz/presets/door/goto
+curl http://192.168.1.3:8080/api/ptz/presets
+curl -X DELETE http://192.168.1.3:8080/api/ptz/presets/door
+```
+
+Calibration and presets are intentionally held in memory: recalibrate after a
+restart or whenever the camera has been moved manually outside this application.
+Manual REST and ONVIF continuous moves update the same position estimate. Up to
+16 presets are exposed through both REST and the ONVIF PTZ service.
+
 **Light Control:**
 ```bash
 curl -X POST http://192.168.1.3:8080/api/light/on

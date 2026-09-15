@@ -46,18 +46,19 @@ namespace V380Decoder.src
       else if (Contains(action, body, "GetAudioEncoderConfigurations")) return RespGetAudioEncoderConfigurations();
       else if (Contains(action, body, "GetAudioEncoderConfiguration")) return RespGetAudioEncoderConfig();
       else if (Contains(action, body, "GetServiceCapabilities")) return RespServiceCapabilities(ctx);
-      else if (Contains(action, body, "GetPresets")) return RespGetPresets();
+      else if (Contains(action, body, "GetPresets")) return RespGetPresets(camera);
       else if (Contains(action, body, "GetNodes")) return RespGetNodes();
       else if (Contains(action, body, "GetConfigurationOptions")) return RespGetConfigOptions();
       else if (Contains(action, body, "GetConfigurations")) return RespGetConfigurations();
       else if (Contains(action, body, "GetConfiguration")) return RespGetConfigurations();
-      else if (Contains(action, body, "GetStatus")) return RespGetStatus();
+      else if (Contains(action, body, "GetStatus")) return RespGetStatus(camera);
       else if (Contains(action, body, "ContinuousMove")) return HandleContinuousMove(body, camera);
-      else if (Contains(action, body, "AbsoluteMove")) return SoapOk("AbsoluteMove");
-      else if (Contains(action, body, "RelativeMove")) return SoapOk("RelativeMove");
-      else if (Contains(action, body, "GotoHomePosition")) return SoapOk("GotoHomePosition");
-      else if (Contains(action, body, "SetPreset")) return SoapOk("SetPreset");
-      else if (Contains(action, body, "RemovePreset")) return SoapOk("RemovePreset");
+      else if (Contains(action, body, "AbsoluteMove")) return HandleAbsoluteMove(body, camera);
+      else if (Contains(action, body, "RelativeMove")) return HandleRelativeMove(body, camera);
+      else if (Contains(action, body, "GotoHomePosition")) return HandleMoveTo(camera, 0, 0, "GotoHomePosition");
+      else if (Contains(action, body, "GotoPreset")) return HandleGotoPreset(body, camera);
+      else if (Contains(action, body, "SetPreset")) return HandleSetPreset(body, camera);
+      else if (Contains(action, body, "RemovePreset")) return HandleRemovePreset(body, camera);
       else if (Contains(action, body, "Stop")) return HandleStop(camera);
       else if (Contains(action, body, "SetImagingSettings")) return HandleSetImaging(body, camera);
       else if (Contains(action, body, "GetImagingSettings")) return RespGetImagingSettings();
@@ -179,6 +180,55 @@ namespace V380Decoder.src
       }
       LogUtils.debug("[ONVIF] PTZ → STOP");
       return SoapOk("Stop");
+    }
+
+    private static string HandleAbsoluteMove(string body, V380Client camera) =>
+      HandleMoveTo(camera, ParseFloat(body, "x"), ParseFloat(body, "y"), "AbsoluteMove");
+
+    private static string HandleRelativeMove(string body, V380Client camera)
+    {
+      PtzStatus current = camera.Ptz.GetStatus();
+      return HandleMoveTo(camera, current.Pan + ParseFloat(body, "x"),
+        current.Tilt + ParseFloat(body, "y"), "RelativeMove");
+    }
+
+    private static string HandleMoveTo(V380Client camera, double pan, double tilt, string action)
+    {
+      try
+      {
+        _ = camera.Ptz.MoveToAsync(pan, tilt);
+        return SoapOk(action);
+      }
+      catch (InvalidOperationException ex) { return SoapFault("Sender", ex.Message); }
+    }
+
+    private static string HandleSetPreset(string body, V380Client camera)
+    {
+      try
+      {
+        PtzPreset preset = camera.Ptz.SetPreset(ParseTag(body, "PresetName"), ParseTag(body, "PresetToken"));
+        return Envelope($"<tptz:SetPresetResponse><tptz:PresetToken>{Escape(preset.Token)}</tptz:PresetToken></tptz:SetPresetResponse>");
+      }
+      catch (InvalidOperationException ex) { return SoapFault("Sender", ex.Message); }
+    }
+
+    private static string HandleRemovePreset(string body, V380Client camera)
+    {
+      string token = ParseTag(body, "PresetToken");
+      return camera.Ptz.RemovePreset(token) ? SoapOk("RemovePreset") : SoapFault("Sender", $"Unknown preset '{token}'.");
+    }
+
+    private static string HandleGotoPreset(string body, V380Client camera)
+    {
+      try
+      {
+        _ = camera.Ptz.GoToPresetAsync(ParseTag(body, "PresetToken"));
+        return SoapOk("GotoPreset");
+      }
+      catch (Exception ex) when (ex is InvalidOperationException or KeyNotFoundException)
+      {
+        return SoapFault("Sender", ex.Message);
+      }
     }
 
     private static string HandleSetImaging(string body, V380Client camera)
@@ -475,7 +525,7 @@ namespace V380Decoder.src
     private static string RespPtzServiceCapabilities() => Envelope(@"
               <tptz:GetServiceCapabilitiesResponse>
                 <tptz:Capabilities EFlip=""false"" Reverse=""false""
-                  GetCompatibleConfigurations=""false"" MoveStatus=""false""/>
+                  GetCompatibleConfigurations=""false"" MoveStatus=""true""/>
               </tptz:GetServiceCapabilitiesResponse>");
 
     private static string RespGetNodes() => Envelope(@"
@@ -483,14 +533,24 @@ namespace V380Decoder.src
                 <tptz:PTZNode token=""PTZNode_1"" FixedHomePosition=""false"">
                   <tt:Name>V380 PTZ</tt:Name>
                   <tt:SupportedPTZSpaces>
+                    <tt:AbsolutePanTiltPositionSpace>
+                      <tt:URI>http://www.onvif.org/ver10/tptz/PanTiltSpaces/PositionGenericSpace</tt:URI>
+                      <tt:XRange><tt:Min>-1</tt:Min><tt:Max>1</tt:Max></tt:XRange>
+                      <tt:YRange><tt:Min>-1</tt:Min><tt:Max>1</tt:Max></tt:YRange>
+                    </tt:AbsolutePanTiltPositionSpace>
+                    <tt:RelativePanTiltTranslationSpace>
+                      <tt:URI>http://www.onvif.org/ver10/tptz/PanTiltSpaces/TranslationGenericSpace</tt:URI>
+                      <tt:XRange><tt:Min>-1</tt:Min><tt:Max>1</tt:Max></tt:XRange>
+                      <tt:YRange><tt:Min>-1</tt:Min><tt:Max>1</tt:Max></tt:YRange>
+                    </tt:RelativePanTiltTranslationSpace>
                     <tt:ContinuousPanTiltVelocitySpace>
                       <tt:URI>http://www.onvif.org/ver10/tptz/PanTiltSpaces/VelocityGenericSpace</tt:URI>
                       <tt:XRange><tt:Min>-1</tt:Min><tt:Max>1</tt:Max></tt:XRange>
                       <tt:YRange><tt:Min>-1</tt:Min><tt:Max>1</tt:Max></tt:YRange>
                     </tt:ContinuousPanTiltVelocitySpace>
                   </tt:SupportedPTZSpaces>
-                  <tt:MaximumNumberOfPresets>0</tt:MaximumNumberOfPresets>
-                  <tt:HomeSupported>false</tt:HomeSupported>
+                  <tt:MaximumNumberOfPresets>{SoftwarePtzController.MaximumPresets}</tt:MaximumNumberOfPresets>
+                  <tt:HomeSupported>true</tt:HomeSupported>
                 </tptz:PTZNode>
               </tptz:GetNodesResponse>");
 
@@ -506,6 +566,16 @@ namespace V380Decoder.src
               <tptz:GetConfigurationOptionsResponse>
                 <tptz:PTZConfigurationOptions>
                   <tt:Spaces>
+                    <tt:AbsolutePanTiltPositionSpace>
+                      <tt:URI>http://www.onvif.org/ver10/tptz/PanTiltSpaces/PositionGenericSpace</tt:URI>
+                      <tt:XRange><tt:Min>-1</tt:Min><tt:Max>1</tt:Max></tt:XRange>
+                      <tt:YRange><tt:Min>-1</tt:Min><tt:Max>1</tt:Max></tt:YRange>
+                    </tt:AbsolutePanTiltPositionSpace>
+                    <tt:RelativePanTiltTranslationSpace>
+                      <tt:URI>http://www.onvif.org/ver10/tptz/PanTiltSpaces/TranslationGenericSpace</tt:URI>
+                      <tt:XRange><tt:Min>-1</tt:Min><tt:Max>1</tt:Max></tt:XRange>
+                      <tt:YRange><tt:Min>-1</tt:Min><tt:Max>1</tt:Max></tt:YRange>
+                    </tt:RelativePanTiltTranslationSpace>
                     <tt:ContinuousPanTiltVelocitySpace>
                       <tt:URI>http://www.onvif.org/ver10/tptz/PanTiltSpaces/VelocityGenericSpace</tt:URI>
                       <tt:XRange><tt:Min>-1</tt:Min><tt:Max>1</tt:Max></tt:XRange>
@@ -641,26 +711,36 @@ namespace V380Decoder.src
                 </tds:HostnameInformation>
               </tds:GetHostnameResponse>");
 
-    private static string RespGetStatus() => Envelope($@"
+    private static string RespGetStatus(V380Client camera)
+    {
+      PtzStatus status = camera.Ptz.GetStatus();
+      return Envelope($@"
               <tptz:GetStatusResponse>
                 <tptz:PTZStatus>
                   <tt:Position>
-                    <tt:PanTilt x=""0"" y=""0""
+                    <tt:PanTilt x=""{Invariant(status.Pan)}"" y=""{Invariant(status.Tilt)}""
                       space=""http://www.onvif.org/ver10/tptz/PanTiltSpaces/PositionGenericSpace""/>
                     <tt:Zoom x=""0""
                       space=""http://www.onvif.org/ver10/tptz/ZoomSpaces/PositionGenericSpace""/>
                   </tt:Position>
                   <tt:MoveStatus>
-                    <tt:PanTilt>IDLE</tt:PanTilt>
+                    <tt:PanTilt>{(status.IsMoving ? "MOVING" : "IDLE")}</tt:PanTilt>
                     <tt:Zoom>IDLE</tt:Zoom>
                   </tt:MoveStatus>
                   <tt:UtcTime>{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ssZ}</tt:UtcTime>
                 </tptz:PTZStatus>
               </tptz:GetStatusResponse>");
+    }
 
-    private static string RespGetPresets() => Envelope(@"
-              <tptz:GetPresetsResponse>
-              </tptz:GetPresetsResponse>");
+    private static string RespGetPresets(V380Client camera)
+    {
+      string presets = string.Concat(camera.Ptz.GetPresets().Select(p => $@"
+                <tptz:Preset token=""{Escape(p.Token)}"">
+                  <tt:Name>{Escape(p.Name)}</tt:Name>
+                  <tt:PTZPosition><tt:PanTilt x=""{Invariant(p.Pan)}"" y=""{Invariant(p.Tilt)}""/></tt:PTZPosition>
+                </tptz:Preset>"));
+      return Envelope($"<tptz:GetPresetsResponse>{presets}</tptz:GetPresetsResponse>");
+    }
 
     private static string RespGetMoveOptions() => Envelope(@"
               <timg:GetMoveOptionsResponse>
@@ -877,6 +957,12 @@ namespace V380Decoder.src
           System.Globalization.NumberStyles.Float,
           System.Globalization.CultureInfo.InvariantCulture, out float v) ? v : def;
     }
+
+    private static string Invariant(double value) =>
+      value.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string Escape(string value) =>
+      System.Security.SecurityElement.Escape(value ?? string.Empty) ?? string.Empty;
 
     static string ParseTag(string body, string tag)
     {
