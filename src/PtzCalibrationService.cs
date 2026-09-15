@@ -5,8 +5,10 @@ namespace V380Decoder.src
     // Tracks only commands issued through this service. It never claims to read camera coordinates.
     public sealed class PtzCalibrationService
     {
-        private const int CommandPulseIntervalMs = 250;
-        private const int MinDurationMs = CommandPulseIntervalMs;
+        private const int HorizontalPulseIntervalMs = 250;
+        private const int VerticalPulseIntervalMs = 100;
+        private const int DurationIncrementMs = 250;
+        private const int MinDurationMs = DurationIncrementMs;
         private const int MaxDurationMs = 10_000;
         private const int MinTravelMs = 1_000;
         private const int MaxTravelMs = 60_000;
@@ -49,8 +51,8 @@ namespace V380Decoder.src
         {
             if (panTravelMs < MinTravelMs || panTravelMs > MaxTravelMs ||
                 tiltTravelMs < MinTravelMs || tiltTravelMs > MaxTravelMs ||
-                panTravelMs % CommandPulseIntervalMs != 0 || tiltTravelMs % CommandPulseIntervalMs != 0)
-                return Failure($"Travel times must be between {MinTravelMs} and {MaxTravelMs} milliseconds and use {CommandPulseIntervalMs} ms increments.");
+                panTravelMs % DurationIncrementMs != 0 || tiltTravelMs % DurationIncrementMs != 0)
+                return Failure($"Travel times must be between {MinTravelMs} and {MaxTravelMs} milliseconds and use {DurationIncrementMs} ms increments.");
 
             await movementLock.WaitAsync();
             try
@@ -154,8 +156,8 @@ namespace V380Decoder.src
                 return Failure("Direction must be up, down, left, or right.");
             if (request.durationMs < MinDurationMs || request.durationMs > MaxDurationMs)
                 return Failure($"durationMs must be between {MinDurationMs} and {MaxDurationMs}.");
-            if (request.durationMs % CommandPulseIntervalMs != 0)
-                return Failure($"durationMs must use {CommandPulseIntervalMs} ms increments.");
+            if (request.durationMs % DurationIncrementMs != 0)
+                return Failure($"durationMs must use {DurationIncrementMs} ms increments.");
 
             await movementLock.WaitAsync();
             try
@@ -251,6 +253,9 @@ namespace V380Decoder.src
 
         private async Task<bool> RunCommandAsync(string direction, int durationMs, CancellationToken token)
         {
+            int pulseIntervalMs = direction is "up" or "down"
+                ? VerticalPulseIntervalMs
+                : HorizontalPulseIntervalMs;
             try
             {
                 int remainingMs = durationMs;
@@ -261,7 +266,7 @@ namespace V380Decoder.src
                         client.PtzStop();
                         return false;
                     }
-                    int delayMs = Math.Min(CommandPulseIntervalMs, remainingMs);
+                    int delayMs = Math.Min(pulseIntervalMs, remainingMs);
                     await Task.Delay(delayMs, token);
                     remainingMs -= delayMs;
                 }
