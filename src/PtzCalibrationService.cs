@@ -7,6 +7,9 @@ namespace V380Decoder.src
     {
         private const int MinDurationMs = 50;
         private const int MaxDurationMs = 10_000;
+        private const int MinTravelMs = 1_000;
+        private const int MaxTravelMs = 60_000;
+        private const int HomingMarginMs = 1_000;
         private readonly V380Client client;
         private readonly string stateFile;
         private readonly object stateLock = new();
@@ -33,18 +36,51 @@ namespace V380Decoder.src
                         pair => pair.Key,
                         pair => new PtzPreset { pan = pair.Value.pan, tilt = pair.Value.tilt },
                         StringComparer.OrdinalIgnoreCase),
-                    movementActive = activeMovement != null
+                    movementActive = activeMovement != null,
+                    calibrated = state.calibrated,
+                    panTravelMs = state.panTravelMs,
+                    tiltTravelMs = state.tiltTravelMs
                 };
             }
         }
 
-        public void Calibrate()
+        public async Task<PtzMoveResult> CalibrateAsync(int panTravelMs, int tiltTravelMs)
         {
-            lock (stateLock)
+            if (panTravelMs < MinTravelMs || panTravelMs > MaxTravelMs ||
+                tiltTravelMs < MinTravelMs || tiltTravelMs > MaxTravelMs)
+                return Failure($"Travel times must be between {MinTravelMs} and {MaxTravelMs} milliseconds.");
+
+            await movementLock.WaitAsync();
+            try
             {
-                state.position = new PtzPosition();
-                SaveLocked();
+                using var cancellation = new CancellationTokenSource();
+                lock (stateLock) activeMovement = cancellation;
+                try
+                {
+                    if (!await RunCommandAsync("left", panTravelMs + HomingMarginMs, cancellation.Token) ||
+                        !await RunCommandAsync("down", tiltTravelMs + HomingMarginMs, cancellation.Token))
+                        return Failure("Calibration was stopped or the camera control connection is unavailable.");
+
+                    lock (stateLock)
+                    {
+                        state.schemaVersion = 2;
+                        state.calibrated = true;
+                        state.panTravelMs = panTravelMs;
+                        state.tiltTravelMs = tiltTravelMs;
+                        state.position = new PtzPosition();
+                        state.temporaryPosition = null;
+                        state.presets.Clear();
+                        SaveLocked();
+                    }
+                    return Success();
+                }
+                finally
+                {
+                    lock (stateLock)
+                        if (ReferenceEquals(activeMovement, cancellation)) activeMovement = null;
+                }
             }
+            finally { movementLock.Release(); }
         }
 
         public bool SavePreset(string name, out string? error)
@@ -57,6 +93,11 @@ namespace V380Decoder.src
 
             lock (stateLock)
             {
+                if (!state.calibrated)
+                {
+                    error = "Run hard-stop calibration before saving presets.";
+                    return false;
+                }
                 state.presets[name] = new PtzPreset { pan = state.position.pan, tilt = state.position.tilt };
                 SaveLocked();
                 error = null;
@@ -89,7 +130,7 @@ namespace V380Decoder.src
             lock (stateLock) target = state.temporaryPosition?.Copy();
             return target == null
                 ? Failure("No temporary position has been saved.")
-                : await MoveToAsync(target);
+                : await MoveToFromHomeAsync(target);
         }
 
         public async Task<PtzMoveResult> GoToPresetAsync(string name)
@@ -102,7 +143,7 @@ namespace V380Decoder.src
             }
             return preset == null
                 ? Failure($"Preset '{name}' was not found.")
-                : await MoveToAsync(new PtzPosition { pan = preset.pan, tilt = preset.tilt });
+                : await MoveToFromHomeAsync(new PtzPosition { pan = preset.pan, tilt = preset.tilt });
         }
 
         public async Task<PtzMoveResult> MoveAsync(PtzMoveRequest request)
@@ -161,23 +202,61 @@ namespace V380Decoder.src
             return new PtzMoveResult { ok = stopped, completed = false, error = stopped ? null : "The camera control connection is unavailable.", position = GetPosition() };
         }
 
-        private async Task<PtzMoveResult> MoveToAsync(PtzPosition target)
+        private async Task<PtzMoveResult> MoveToFromHomeAsync(PtzPosition target)
         {
-            PtzPosition current = GetPosition();
-            var horizontal = target.pan - current.pan;
-            if (horizontal != 0)
+            int panTravelMs;
+            int tiltTravelMs;
+            lock (stateLock)
             {
-                var result = await MoveAsync(new PtzMoveRequest { direction = horizontal > 0 ? "right" : "left", durationMs = Math.Abs(horizontal) });
-                if (!result.completed) return result;
+                if (!state.calibrated) return Failure("Run hard-stop calibration before recalling presets.");
+                panTravelMs = state.panTravelMs;
+                tiltTravelMs = state.tiltTravelMs;
             }
-            current = GetPosition();
-            var vertical = target.tilt - current.tilt;
-            if (vertical != 0)
+
+            await movementLock.WaitAsync();
+            try
             {
-                var result = await MoveAsync(new PtzMoveRequest { direction = vertical > 0 ? "up" : "down", durationMs = Math.Abs(vertical) });
-                if (!result.completed) return result;
+                using var cancellation = new CancellationTokenSource();
+                lock (stateLock) activeMovement = cancellation;
+                try
+                {
+                    // Re-establish a physical reference before every recall. This makes
+                    // native-app and other unobserved movement irrelevant.
+                    if (!await RunCommandAsync("left", panTravelMs + HomingMarginMs, cancellation.Token) ||
+                        !await RunCommandAsync("down", tiltTravelMs + HomingMarginMs, cancellation.Token))
+                        return Failure("Re-home was stopped or the camera control connection is unavailable.");
+
+                    lock (stateLock) state.position = new PtzPosition();
+
+                    int pan = Math.Clamp(target.pan, 0, panTravelMs);
+                    int tilt = Math.Clamp(target.tilt, 0, tiltTravelMs);
+                    if (pan > 0 && !await RunCommandAsync("right", pan, cancellation.Token))
+                        return Failure("Horizontal preset movement was stopped.");
+                    if (tilt > 0 && !await RunCommandAsync("up", tilt, cancellation.Token))
+                        return Failure("Vertical preset movement was stopped.");
+
+                    lock (stateLock)
+                    {
+                        state.position = new PtzPosition { pan = pan, tilt = tilt };
+                        SaveLocked();
+                    }
+                    return Success();
+                }
+                finally
+                {
+                    lock (stateLock)
+                        if (ReferenceEquals(activeMovement, cancellation)) activeMovement = null;
+                }
             }
-            return new PtzMoveResult { ok = true, completed = true, position = GetPosition() };
+            finally { movementLock.Release(); }
+        }
+
+        private async Task<bool> RunCommandAsync(string direction, int durationMs, CancellationToken token)
+        {
+            if (!Send(direction)) return false;
+            try { await Task.Delay(durationMs, token); }
+            catch (OperationCanceledException) { client.PtzStop(); return false; }
+            return client.PtzStop();
         }
 
         private PtzPosition GetPosition()
@@ -185,6 +264,7 @@ namespace V380Decoder.src
             lock (stateLock) return state.position.Copy();
         }
 
+        private PtzMoveResult Success() => new() { ok = true, completed = true, position = GetPosition() };
         private static PtzMoveResult Failure(string error) => new() { ok = false, completed = false, error = error };
 
         private bool Send(string direction) => direction switch
@@ -207,6 +287,11 @@ namespace V380Decoder.src
             if (direction == "right") state.position.pan += durationMs;
             if (direction == "up") state.position.tilt += durationMs;
             if (direction == "down") state.position.tilt -= durationMs;
+            if (state.calibrated)
+            {
+                state.position.pan = Math.Clamp(state.position.pan, 0, state.panTravelMs);
+                state.position.tilt = Math.Clamp(state.position.tilt, 0, state.tiltTravelMs);
+            }
         }
 
         private PtzPersistentState Load()
@@ -214,7 +299,14 @@ namespace V380Decoder.src
             try
             {
                 if (!File.Exists(stateFile)) return new PtzPersistentState();
-                return JsonSerializer.Deserialize(File.ReadAllText(stateFile), AppJsonSerializerContext.Default.PtzPersistentState) ?? new PtzPersistentState();
+                var loaded = JsonSerializer.Deserialize(File.ReadAllText(stateFile), AppJsonSerializerContext.Default.PtzPersistentState) ?? new PtzPersistentState();
+                if (loaded.schemaVersion < 2)
+                {
+                    // Version 1 positions used an arbitrary origin and cannot be
+                    // converted into hard-stop-referenced coordinates safely.
+                    return new PtzPersistentState();
+                }
+                return loaded;
             }
             catch (Exception ex)
             {

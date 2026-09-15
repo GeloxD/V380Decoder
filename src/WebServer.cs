@@ -168,10 +168,10 @@ namespace V380Decoder.src
                     return result.ok ? Results.Ok(result) : Results.BadRequest(result);
                 });
                 api.MapGet("/api/ptz/calibration/status", () => Results.Ok(ptz.GetStatus()));
-                api.MapPost("/api/ptz/calibrate", () =>
+                api.MapPost("/api/ptz/calibrate", async (int panTravelMs, int tiltTravelMs) =>
                 {
-                    ptz.Calibrate();
-                    return Results.Ok(ptz.GetStatus());
+                    var result = await ptz.CalibrateAsync(panTravelMs, tiltTravelMs);
+                    return result.ok ? Results.Ok(ptz.GetStatus()) : Results.BadRequest(result);
                 });
                 api.MapPost("/api/ptz/presets", (PtzPresetRequest request) =>
                 {

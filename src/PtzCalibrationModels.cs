@@ -16,6 +16,10 @@ namespace V380Decoder.src
 
     public sealed class PtzPersistentState
     {
+        public int schemaVersion { get; set; } = 2;
+        public bool calibrated { get; set; }
+        public int panTravelMs { get; set; }
+        public int tiltTravelMs { get; set; }
         public PtzPosition position { get; set; } = new();
         public PtzPosition? temporaryPosition { get; set; }
         public Dictionary<string, PtzPreset> presets { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -46,6 +50,10 @@ namespace V380Decoder.src
         public PtzPosition? temporaryPosition { get; set; }
         public Dictionary<string, PtzPreset> presets { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public bool movementActive { get; set; }
-        public string positionType { get; set; } = "software-calibrated";
+        public bool calibrated { get; set; }
+        public int panTravelMs { get; set; }
+        public int tiltTravelMs { get; set; }
+        public string positionType { get; set; } = "hard-stop-referenced";
+        public string presetRecallMode { get; set; } = "rehome-first";
     }
 }

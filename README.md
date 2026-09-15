@@ -245,7 +245,7 @@ docker run -d --restart unless-stopped --network host v380decoder --id 12345678 
 
 ## Software-calibrated PTZ presets
 
-The camera does not provide verified absolute PTZ coordinates. The calibration API records only timed movements issued through `/api/ptz/move`; its `pan` and `tilt` values are milliseconds of commanded movement, not degrees or camera-reported position.
+The camera does not provide verified absolute PTZ coordinates. Calibration drives the camera to its left and down physical stops, establishing a repeatable reference. `pan` and `tilt` are motor-running milliseconds measured from that corner, not degrees or camera-reported coordinates.
 
 The state file defaults to `/data/ptz-state.json`. Mount `/data` to persistent host storage when using Docker:
 
@@ -261,8 +261,9 @@ docker run -d --restart unless-stopped --network host \
 All timed movement requests require a duration from 50 to 10000 milliseconds. Each timed move sends a direction, waits for that duration, then sends the camera stop command. A failed, cancelled, or manually overridden move is not added to the logical position.
 
 ```bash
-# Set the current physical view as the software origin (0,0).
-curl -X POST http://localhost:8080/api/ptz/calibrate
+# Establish the left/down reference using measured full-travel times. Calibration
+# clears presets saved using an older coordinate system.
+curl -X POST "http://localhost:8080/api/ptz/calibrate?panTravelMs=${PAN_TRAVEL_MS}&tiltTravelMs=${TILT_TRAVEL_MS}"
 
 # Move right for 500 ms and update software position.
 curl -X POST http://localhost:8080/api/ptz/move \
@@ -284,7 +285,7 @@ curl -X POST http://localhost:8080/api/ptz/save-position
 curl -X POST http://localhost:8080/api/ptz/restore-position
 ```
 
-The original `/api/ptz/up`, `/down`, `/left`, and `/right` endpoints remain available for backwards compatibility, but they do not update software position. `POST /api/ptz/stop` now also cancels an active timed move.
+Preset and temporary-position recall always re-homes against the physical stops before moving to the saved position. This corrects drift caused by movement from the native V380 app or any other unobserved controller. The original `/api/ptz/up`, `/down`, `/left`, and `/right` endpoints remain available for backwards compatibility, but they do not update software position. `POST /api/ptz/stop` also cancels an active timed move.
 
 ## Acknowledgements
 
