@@ -661,6 +661,44 @@ namespace V380Decoder.src
         public bool PtzUp() => SendControl(V380Commands.PTZ_UP);
         public bool PtzDown() => SendControl(V380Commands.PTZ_DOWN);
         public bool PtzStop() => SendControl(V380Commands.PTZ_STOP);
+        public bool PtzRecallNativePreset(int slot) =>
+            IsValidNativePresetSlot(slot) && SendControl(V380Commands.NativePresetRecall(slot));
+
+        public bool PtzSetNativePreset(int slot)
+        {
+            if (!IsValidNativePresetSlot(slot) || source != SourceStream.Lan || authTicket == 0) return false;
+
+            try
+            {
+                using var presetClient = new TcpClient { NoDelay = true };
+                var connection = presetClient.BeginConnect(ip, port, null, null);
+                if (!connection.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(5))) return false;
+                presetClient.EndConnect(connection);
+                using NetworkStream presetStream = presetClient.GetStream();
+
+                // Captured from V380 Pro while saving a camera-side preset:
+                // command 329, channel 1, current auth ticket, operation 102, slot.
+                var request = new byte[256];
+                WriteUInt32LE(request, 0, 329);
+                WriteUInt32LE(request, 4, deviceId);
+                request[8] = 1;
+                WriteUInt32LE(request, 9, authTicket);
+                WriteUInt32LE(request, 13, 102);
+                WriteUInt32LE(request, 17, (uint)slot);
+                if (!SendData(presetStream, request)) return false;
+
+                byte[] response = ReceiveData(presetStream, 32);
+                return response != null && response.Length >= 8 &&
+                    ReadUInt32LE(response, 0) == 429 && ReadUInt32LE(response, 4) == 1001;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[PTZ] Native preset save failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool IsValidNativePresetSlot(int slot) => slot is >= 1 and <= 16;
         public bool LightOn() => SendControl(V380Commands.LIGHT_ON);
         public bool LightOff() => SendControl(V380Commands.LIGHT_OFF);
         public bool LightAuto() => SendControl(V380Commands.LIGHT_AUTO);

@@ -199,6 +199,20 @@ namespace V380Decoder.src
                     var result = await ptz.RestoreAsync();
                     return result.ok ? Results.Ok(result) : Results.BadRequest(result);
                 });
+                api.MapPost("/api/ptz/native-presets/{slot:int}", (int slot) =>
+                {
+                    if (slot is < 1 or > 16) return Results.BadRequest(new { error = "Preset slot must be between 1 and 16." });
+                    return client.PtzSetNativePreset(slot)
+                        ? Results.Ok(new { ok = true, slot })
+                        : Results.Problem("The camera did not accept the native preset save command.");
+                });
+                api.MapPost("/api/ptz/native-presets/{slot:int}/goto", (int slot) =>
+                {
+                    if (slot is < 1 or > 16) return Results.BadRequest(new { error = "Preset slot must be between 1 and 16." });
+                    return client.PtzRecallNativePreset(slot)
+                        ? Results.Ok(new { ok = true, slot })
+                        : Results.Problem("The camera control connection is unavailable.");
+                });
 
                 api.MapPost("/api/light/on", () => { client.LightOn(); LogUtils.debug("[API] Light On"); Results.Ok(); });
                 api.MapPost("/api/light/off", () => { client.LightOff(); LogUtils.debug("[API] Light Off"); Results.Ok(); });

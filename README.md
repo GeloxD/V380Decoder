@@ -287,6 +287,20 @@ curl -X POST http://localhost:8080/api/ptz/restore-position
 
 Preset and temporary-position recall always re-homes against the physical stops before moving to the saved position. This corrects drift caused by movement from the native V380 app or any other unobserved controller. The original `/api/ptz/up`, `/down`, `/left`, and `/right` endpoints remain available for backwards compatibility, but they do not update software position. `POST /api/ptz/stop` also cancels an active timed move.
 
+### Experimental camera-native presets
+
+V380 Pro stores numbered presets in the camera firmware. These endpoints reproduce the captured V380 Pro save and recall commands and move directly without software re-homing:
+
+```bash
+# Save the camera's current physical view in native slot 1.
+curl -X POST http://localhost:8080/api/ptz/native-presets/1
+
+# Recall native slot 1 directly.
+curl -X POST http://localhost:8080/api/ptz/native-presets/1/goto
+```
+
+Slots 1 through 16 are accepted by the API. Device support beyond captured slot 1 is experimental.
+
 ## Acknowledgements
 
 - [prsyahmi/v380](https://github.com/prsyahmi/v380) - Original V380 reverse engineering work

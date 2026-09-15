@@ -19,5 +19,23 @@ namespace V380Decoder.src
         public static readonly byte[] IMAGE_BW = [0xc5, 0x0, 0x0, 0x0, 0xea, 0x3, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0];
         public static readonly byte[] IMAGE_AUTO = [0xc5, 0x0, 0x0, 0x0, 0xeb, 0x3, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0];
         public static readonly byte[] IMAGE_FLIP = [0xbe, 0x0, 0x0, 0x0, 0xe8, 0x3, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0];
+
+        // Captured from V380 Pro while recalling a camera-side preset.
+        public static byte[] NativePresetRecall(int slot)
+        {
+            var command = new byte[16];
+            WriteUInt32LE(command, 0, 171);
+            WriteUInt32LE(command, 4, 103);
+            WriteUInt32LE(command, 8, (uint)slot);
+            return command;
+        }
+
+        private static void WriteUInt32LE(byte[] buffer, int offset, uint value)
+        {
+            buffer[offset] = (byte)value;
+            buffer[offset + 1] = (byte)(value >> 8);
+            buffer[offset + 2] = (byte)(value >> 16);
+            buffer[offset + 3] = (byte)(value >> 24);
+        }
     }
 }
